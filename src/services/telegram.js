@@ -20,6 +20,9 @@ if (!token || token.startsWith('your_')) {
     setWebHook: async (url) => {
       console.log(`[Mock Telegram] Webhook set to ${url}`);
     },
+    deleteWebhook: async () => {},
+    startPolling: () => {},
+    stopPolling: async () => {},
     on: () => {}
   };
 } else {
@@ -33,16 +36,20 @@ if (!token || token.startsWith('your_')) {
     // start polling cleanly.
     bot = new TelegramBot(token, { polling: false });
 
-    bot.deleteWebhook({ drop_pending_updates: true })
-      .then(() => {
-        bot.startPolling();
-        console.log('Telegram Bot configured for Long-Polling mode (stale sessions cleared).');
-      })
-      .catch((err) => {
-        console.error('Failed to clear Telegram webhook before polling:', err.message);
-        // Start polling anyway — 409s will self-resolve after Telegram times out the old session
-        bot.startPolling();
-      });
+    if (typeof bot.deleteWebhook === 'function') {
+      bot.deleteWebhook({ drop_pending_updates: true })
+        .then(() => {
+          bot.startPolling();
+          console.log('Telegram Bot configured for Long-Polling mode (stale sessions cleared).');
+        })
+        .catch((err) => {
+          console.error('Failed to clear Telegram webhook before polling:', err.message);
+          bot.startPolling();
+        });
+    } else {
+      bot.startPolling();
+      console.log('Telegram Bot configured for Long-Polling mode.');
+    }
   }
 
   bot.on('message', (msg) => {

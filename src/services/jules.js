@@ -26,13 +26,18 @@ export async function createSession(prompt, sprintBranch, julesNotes) {
   
   const body = {
     prompt: fullPrompt,
-    source: { name: process.env.JULES_REPO_SOURCE },
+    sourceContext: {
+      source: process.env.JULES_REPO_SOURCE,
+      githubRepoContext: {
+        startingBranch: sprintBranch
+      }
+    },
     title: title,
     automationMode: 'AUTO_CREATE_PR',
     requirePlanApproval: false
   };
 
-  console.log(`Creating Jules session: "${title}" on branch: "${sprintBranch}"`);
+  console.log(`Creating Jules session: "${title}" on starting branch: "${sprintBranch}"`);
   
   const response = await fetch(url, {
     method: 'POST',

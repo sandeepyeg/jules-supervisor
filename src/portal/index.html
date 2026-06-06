@@ -466,6 +466,29 @@
       0%, 100% { opacity: 1; }
       50% { opacity: 0.5; }
     }
+
+    .pulse-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 0.4rem;
+      animation: pulse-glow 1.2s infinite alternate;
+    }
+    .pulse-dot-running {
+      background-color: var(--info);
+      color: var(--info);
+      box-shadow: 0 0 6px var(--info-glow);
+    }
+    .pulse-dot-waiting_answer {
+      background-color: var(--warning);
+      color: var(--warning);
+      box-shadow: 0 0 6px var(--warning-glow);
+    }
+    @keyframes pulse-glow {
+      0% { transform: scale(0.85); opacity: 0.6; }
+      100% { transform: scale(1.15); opacity: 1; }
+    }
   </style>
 </head>
 <body>
@@ -553,6 +576,15 @@
           <div class="phase-metadata" style="margin-top: 0.25rem;">
             <div>Status: <strong id="active-phase-status" class="badge">DRAFT</strong></div>
             <div>Branch: <strong id="active-phase-branch">N/A</strong></div>
+          </div>
+          <div id="phase-progress-container" style="margin-top: 0.75rem; display: none;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem;">
+              <span>Phase Progress</span>
+              <span id="phase-progress-text">0% (0/0 tasks)</span>
+            </div>
+            <div style="width: 100%; height: 6px; background: rgba(255,255,255,0.1); border-radius: 999px; overflow: hidden; border: 1px solid rgba(255,255,255,0.03);">
+              <div id="phase-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--primary), var(--info)); border-radius: 999px; transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 0 8px rgba(99, 102, 241, 0.5);"></div>
+            </div>
           </div>
         </div>
 
@@ -744,6 +776,37 @@
       saveFormDraft();
     }
 
+    function moveTaskUp(index) {
+      if (index <= 0) return;
+      syncTasksFromDOM();
+      const temp = tasksList[index];
+      tasksList[index] = tasksList[index - 1];
+      tasksList[index - 1] = temp;
+      renderTasks();
+      saveFormDraft();
+    }
+
+    function moveTaskDown(index) {
+      if (index >= tasksList.length - 1) return;
+      syncTasksFromDOM();
+      const temp = tasksList[index];
+      tasksList[index] = tasksList[index + 1];
+      tasksList[index + 1] = temp;
+      renderTasks();
+      saveFormDraft();
+    }
+
+    function syncTasksFromDOM() {
+      tasksList.forEach((t) => {
+        const titleEl = document.getElementById(`t-title-${t.id}`);
+        const descEl = document.getElementById(`t-desc-${t.id}`);
+        const notesEl = document.getElementById(`t-notes-${t.id}`);
+        if (titleEl) t.title = titleEl.value;
+        if (descEl) t.description = descEl.value;
+        if (notesEl) t.jules_notes = notesEl.value;
+      });
+    }
+
     function onTaskChange(index, field, value) {
       tasksList[index][field] = value;
       saveFormDraft();
@@ -761,15 +824,7 @@
     }
 
     function updateDependenciesLists() {
-      // Refresh user input strings on state before rendering checkboxes
-      tasksList.forEach((t) => {
-        const titleEl = document.getElementById(`t-title-${t.id}`);
-        const descEl = document.getElementById(`t-desc-${t.id}`);
-        const notesEl = document.getElementById(`t-notes-${t.id}`);
-        if (titleEl) t.title = titleEl.value;
-        if (descEl) t.description = descEl.value;
-        if (notesEl) t.jules_notes = notesEl.value;
-      });
+      syncTasksFromDOM();
       renderTasks();
     }
 
@@ -798,7 +853,11 @@
         item.innerHTML = `
           <div class="item-header">
             <span class="item-number">Task #${idx + 1}</span>
-            <button type="button" class="btn btn-secondary btn-danger" style="padding: 0.15rem 0.45rem; font-size: 0.7rem;" onclick="removeTaskItem(${idx})">Delete</button>
+            <div style="display: flex; gap: 0.35rem;">
+              <button type="button" class="btn btn-secondary" style="padding: 0.15rem 0.45rem; font-size: 0.7rem;" onclick="moveTaskUp(${idx})" ${idx === 0 ? 'disabled' : ''}>↑ Up</button>
+              <button type="button" class="btn btn-secondary" style="padding: 0.15rem 0.45rem; font-size: 0.7rem;" onclick="moveTaskDown(${idx})" ${idx === tasksList.length - 1 ? 'disabled' : ''}>↓ Down</button>
+              <button type="button" class="btn btn-secondary btn-danger" style="padding: 0.15rem 0.45rem; font-size: 0.7rem;" onclick="removeTaskItem(${idx})">Delete</button>
+            </div>
           </div>
           
           <div class="form-group">
@@ -989,6 +1048,18 @@
           document.getElementById('escalation-reminder-text').style.display = 'none';
         }
 
+        // Render progress bar
+        const progressContainer = document.getElementById('phase-progress-container');
+        if (data.tasks && data.tasks.length > 0) {
+          progressContainer.style.display = 'block';
+          const completedTasks = data.tasks.filter(t => t.status === 'merged' || t.status === 'skipped').length;
+          const pct = Math.round((completedTasks / data.tasks.length) * 100);
+          document.getElementById('phase-progress-text').innerText = `${pct}% (${completedTasks}/${data.tasks.length} tasks complete)`;
+          document.getElementById('phase-progress-bar').style.width = `${pct}%`;
+        } else {
+          progressContainer.style.display = 'none';
+        }
+
         // Render statuses
         const listContainer = document.getElementById('active-tasks-list');
         listContainer.innerHTML = '';
@@ -1008,20 +1079,66 @@
           }
 
           let statusDetailText = '';
+          let pulseDot = '';
+          
           if (task.status === 'waiting_answer') {
+            pulseDot = '<span class="pulse-dot pulse-dot-waiting_answer"></span>';
             statusDetailText = '<div style="font-size: 0.7rem; color: var(--warning); margin-top: 0.1rem; font-weight: 500;">🔔 Escalated to Telegram</div>';
           } else if (task.status === 'running') {
+            pulseDot = '<span class="pulse-dot pulse-dot-running"></span>';
             statusDetailText = `<div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.1rem; font-family: monospace;">Session: ${task.jules_session_id || 'starting...'}</div>`;
           }
 
+          // Generate dependency tags
+          let depTags = '';
+          if (task.depends_on) {
+            try {
+              const deps = typeof task.depends_on === 'string' ? JSON.parse(task.depends_on) : task.depends_on;
+              if (Array.isArray(deps) && deps.length > 0) {
+                const depNames = deps.map(depId => {
+                  const found = data.tasks.find(t => String(t.id) === String(depId));
+                  return found ? found.title : `Task #${depId}`;
+                });
+                depTags = `<div style="display: flex; gap: 0.35rem; margin-top: 0.25rem; flex-wrap: wrap; align-items: center;">
+                  <span style="font-size: 0.7rem; color: var(--text-muted);">Depends on:</span>
+                  ${depNames.map(name => `<span style="font-size: 0.65rem; background: rgba(99, 102, 241, 0.1); border: 1px solid rgba(99, 102, 241, 0.25); padding: 0.05rem 0.3rem; border-radius: 4px; color: #c7d2fe;">${name}</span>`).join('')}
+                </div>`;
+              }
+            } catch (e) {
+              console.error('Failed to parse depends_on in render:', e);
+            }
+          }
+
+          // Add control buttons: Skip / Retry
+          let controlButtons = '';
+          const showSkip = ['running', 'waiting_answer', 'failed'].includes(task.status);
+          const showRetry = ['failed', 'waiting_answer'].includes(task.status);
+
+          if (showSkip || showRetry) {
+            controlButtons = `<div style="display: flex; gap: 0.25rem; margin-top: 0.4rem;">`;
+            if (showRetry) {
+              controlButtons += `<button class="btn btn-secondary" style="padding: 0.2rem 0.45rem; font-size: 0.7rem; font-weight: 500;" onclick="retryTask(${task.id})">🔄 Retry</button>`;
+            }
+            if (showSkip) {
+              controlButtons += `<button class="btn btn-secondary btn-danger" style="padding: 0.2rem 0.45rem; font-size: 0.7rem; font-weight: 500; background: transparent; border-color: rgba(239, 68, 68, 0.4); color: #f87171;" onclick="skipTask(${task.id})">⏭ Skip</button>`;
+            }
+            controlButtons += `</div>`;
+          }
+
           card.innerHTML = `
-            <div class="task-status-info">
-              <h4>${task.title} ${retryContent}</h4>
-              <p>ID: ${task.id} ${statusDetailText}</p>
+            <div class="task-status-info" style="flex: 1;">
+              <h4 style="display: flex; align-items: center; flex-wrap: wrap;">
+                ${pulseDot}
+                <span>${task.title}</span>
+                ${retryContent}
+              </h4>
+              <p style="margin-top: 0.1rem;">ID: ${task.id} ${statusDetailText}</p>
+              ${depTags}
+              ${controlButtons}
             </div>
-            <div class="task-status-actions">
-              ${actionContent}
+            <div class="task-status-actions" style="margin-left: 1rem; flex-shrink: 0; align-items: flex-end; flex-direction: column; gap: 0.4rem;">
               <span class="badge badge-${task.status}">${task.status}</span>
+              ${actionContent}
             </div>
           `;
           listContainer.appendChild(card);
@@ -1037,6 +1154,88 @@
       } catch (err) {
         console.error('Status poll failed:', err);
       }
+    }
+
+    async function skipTask(taskId) {
+      if (!confirm('Are you sure you want to skip this task? This will mark it as skipped and allow downstream tasks to start.')) {
+        return;
+      }
+      try {
+        const response = await fetch(`/api/tasks/${taskId}`, {
+          method: 'PATCH',
+          headers: getHeaders(),
+          body: JSON.stringify({ status: 'skipped' })
+        });
+        if (!response.ok) {
+          const err = await response.json();
+          alert('Failed to skip task: ' + (err.error || response.statusText));
+          return;
+        }
+        showToast('Task marked as skipped.');
+        
+        // Restart polling if it was stopped on complete/failed
+        const healthBoxText = document.getElementById('polling-health-box').innerText;
+        if (healthBoxText === 'COMPLETED' || healthBoxText === 'OFFLINE') {
+          loadActivePhase();
+        } else {
+          await pollStatus();
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Network error skipping task: ' + err.message);
+      }
+    }
+
+    async function retryTask(taskId) {
+      if (!confirm('Are you sure you want to retry this task? This will reset its status to queued and trigger a new Jules session.')) {
+        return;
+      }
+      try {
+        const response = await fetch(`/api/tasks/${taskId}`, {
+          method: 'PATCH',
+          headers: getHeaders(),
+          body: JSON.stringify({ status: 'queued', retry_count: 0 })
+        });
+        if (!response.ok) {
+          const err = await response.json();
+          alert('Failed to retry task: ' + (err.error || response.statusText));
+          return;
+        }
+        showToast('Task queued for retry.');
+        
+        // Restart polling if it was stopped on complete/failed
+        const healthBoxText = document.getElementById('polling-health-box').innerText;
+        if (healthBoxText === 'COMPLETED' || healthBoxText === 'OFFLINE') {
+          loadActivePhase();
+        } else {
+          await pollStatus();
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Network error retrying task: ' + err.message);
+      }
+    }
+
+    function showToast(msg) {
+      const toast = document.createElement('div');
+      toast.innerText = msg;
+      toast.style.position = 'fixed';
+      toast.style.bottom = '20px';
+      toast.style.right = '20px';
+      toast.style.background = 'rgba(22, 28, 45, 0.95)';
+      toast.style.border = '1px solid var(--primary)';
+      toast.style.color = '#fff';
+      toast.style.padding = '0.6rem 1.2rem';
+      toast.style.borderRadius = '8px';
+      toast.style.zIndex = '9999';
+      toast.style.fontSize = '0.85rem';
+      toast.style.boxShadow = '0 4px 15px rgba(99, 102, 241, 0.2)';
+      toast.style.transition = 'all 0.3s ease';
+      document.body.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
     }
 
     async function updateQALog() {

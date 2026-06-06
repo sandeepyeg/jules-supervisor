@@ -38,6 +38,20 @@ router.patch('/:id', portalAuth, async (req, res) => {
 
     await queries.updateTaskStatus(taskId, status || task.status, extra);
     const updated = await queries.getTask(taskId);
+
+    // Reactivate phase and restart poller if user retried/skipped a task in a failed or complete phase
+    if (status === 'queued' || status === 'skipped') {
+      const phase = await queries.getPhase(task.phase_id);
+      if (phase && (phase.status === 'failed' || phase.status === 'complete')) {
+        console.log(`Reactivating phase #${phase.id} (status was ${phase.status}) due to task #${taskId} update to ${status}.`);
+        await queries.updatePhaseStatus(phase.id, 'active', { completed_at: null });
+        
+        // Dynamically import and start the poller to avoid circular dependencies
+        const { startPoller } = await import('../core/poller.js');
+        startPoller(phase.id);
+      }
+    }
+
     res.json(updated);
   } catch (error) {
     console.error(`Error updating task #${taskId}:`, error);

@@ -16,6 +16,7 @@ test('End-to-End Real World Supervisor Workflow Simulator', async (t) => {
   // Set up mock Telegram bot responses and message storage
   const sentTelegramMessages = [];
   const originalSendMessage = bot.sendMessage;
+  const originalStopPolling = bot.stopPolling;
   bot.sendMessage = async (cid, text, options) => {
     const messageId = Math.floor(Math.random() * 1000000) + 1000;
     sentTelegramMessages.push({ messageId, text, options });
@@ -197,9 +198,17 @@ test('End-to-End Real World Supervisor Workflow Simulator', async (t) => {
     bot.sendMessage = originalSendMessage;
     delete globalThis.__mockFetch;
 
+    // Stop Telegram polling loop to prevent process from hanging after tests
+    if (bot.stopPolling) {
+      await bot.stopPolling();
+    }
+
     if (phaseId) {
       await pool.query('DELETE FROM phases WHERE id = ?', [phaseId]);
     }
+    
+    // End database pool so Node.js can exit cleanly
+    await pool.end();
   });
 
   // Simulated Execution Timeline

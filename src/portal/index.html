@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jules Supervisor Dashboard</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --bg-gradient: linear-gradient(135deg, #0f172a, #020617);
+      --glass-bg: rgba(30, 41, 59, 0.45);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --glass-glow: rgba(99, 102, 241, 0.15);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      
+      /* Neon Glows */
+      --primary: #6366f1;
+      --primary-glow: rgba(99, 102, 241, 0.4);
+      --success: #10b981;
+      --success-glow: rgba(16, 185, 129, 0.3);
+      --warning: #f59e0b;
+      --warning-glow: rgba(245, 158, 11, 0.3);
+      --danger: #f43f5e;
+      --danger-glow: rgba(244, 63, 94, 0.3);
+      --info: #06b6d4;
+      --info-glow: rgba(6, 182, 212, 0.3);
+      --neutral: #64748b;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg-gradient);
+      color: var(--text-main);
+      min-height: 100vh;
+      overflow-x: hidden;
+      padding: 2rem;
+    }
+
+    h1, h2, h3, h4 {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 600;
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(15, 23, 42, 0.5);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(99, 102, 241, 0.3);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(99, 102, 241, 0.6);
+    }
+
+    /* Layout */
+    .dashboard-container {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 2rem;
+    }
+
+    @media (min-width: 1024px) {
+      .dashboard-container {
+        grid-template-columns: 1.2fr 1fr;
+      }
+      .header-row {
+        grid-column: span 2;
+      }
+    }
+
+    /* Header */
+    .header-row {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--glass-border);
+    }
+
+    @media (min-width: 768px) {
+      .header-row {
+        flex-direction: row;
+        align-items: center;
+      }
+    }
+
+    .logo-area h1 {
+      font-size: 2.2rem;
+      background: linear-gradient(to right, #818cf8, #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 0.25rem;
+    }
+
+    .logo-area p {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+    }
+
+    .security-panel {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      padding: 0.5rem 1rem;
+      border-radius: 12px;
+      backdrop-filter: blur(12px);
+    }
+
+    .security-panel label {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    /* Inputs & Buttons */
+    input, textarea, select {
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid var(--glass-border);
+      color: var(--text-main);
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 0.95rem;
+      outline: none;
+      transition: all 0.3s ease;
+      width: 100%;
+    }
+
+    input:focus, textarea:focus, select:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 10px rgba(99, 102, 241, 0.2);
+    }
+
+    .btn {
+      background: linear-gradient(135deg, var(--primary), #4f46e5);
+      color: #fff;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      box-shadow: 0 4px 14px var(--primary-glow);
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px var(--primary-glow);
+      filter: brightness(1.1);
+    }
+
+    .btn-secondary {
+      background: rgba(148, 163, 184, 0.15);
+      color: var(--text-main);
+      border: 1px solid var(--glass-border);
+      box-shadow: none;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(148, 163, 184, 0.25);
+      box-shadow: none;
+    }
+
+    .btn-danger {
+      background: linear-gradient(135deg, var(--danger), #e11d48);
+      box-shadow: 0 4px 14px var(--danger-glow);
+    }
+
+    .btn-danger:hover {
+      box-shadow: 0 6px 20px var(--danger-glow);
+    }
+
+    /* Glass Panels */
+    .glass-card {
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      padding: 2rem;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+      transition: border-color 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .glass-card:hover {
+      border-color: rgba(255, 255, 255, 0.12);
+      box-shadow: 0 8px 32px 0 rgba(99, 102, 241, 0.05);
+    }
+
+    .card-title {
+      font-size: 1.5rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      padding-bottom: 0.75rem;
+    }
+
+    /* Forms */
+    .form-group {
+      margin-bottom: 1.25rem;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 0.5rem;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .flex-row {
+      display: flex;
+      gap: 1rem;
+    }
+
+    .flex-row > * {
+      flex: 1;
+    }
+
+    /* Sub-items list (Sections & Tasks) */
+    .editor-section {
+      background: rgba(15, 23, 42, 0.3);
+      border: 1px dashed var(--glass-border);
+      padding: 1.25rem;
+      border-radius: 12px;
+      margin-bottom: 1.5rem;
+    }
+
+    .editor-item {
+      background: rgba(30, 41, 59, 0.3);
+      border: 1px solid var(--glass-border);
+      padding: 1rem;
+      border-radius: 8px;
+      margin-bottom: 0.75rem;
+      position: relative;
+    }
+
+    .item-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+
+    .item-number {
+      font-weight: 600;
+      color: var(--primary);
+    }
+
+    .checkbox-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+
+    .checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+    }
+
+    .checkbox-item input[type="checkbox"] {
+      width: auto;
+      cursor: pointer;
+    }
+
+    /* Status Badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.35rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .badge-queued {
+      background: rgba(100, 116, 139, 0.2);
+      color: #94a3b8;
+      border: 1px solid rgba(100, 116, 139, 0.4);
+    }
+
+    .badge-running {
+      background: rgba(6, 182, 212, 0.2);
+      color: #22d3ee;
+      border: 1px solid rgba(6, 182, 212, 0.4);
+      box-shadow: 0 0 10px var(--info-glow);
+      animation: pulse 2s infinite;
+    }
+
+    .badge-waiting_answer {
+      background: rgba(245, 158, 11, 0.2);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      box-shadow: 0 0 10px var(--warning-glow);
+      animation: pulse 1.5s infinite;
+    }
+
+    .badge-pr_open {
+      background: rgba(139, 92, 246, 0.2);
+      color: #a78bfa;
+      border: 1px solid rgba(139, 92, 246, 0.4);
+    }
+
+    .badge-merged {
+      background: rgba(16, 185, 129, 0.2);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.4);
+    }
+
+    .badge-failed {
+      background: rgba(244, 63, 94, 0.2);
+      color: #f87171;
+      border: 1px solid rgba(244, 63, 94, 0.4);
+    }
+
+    .badge-skipped {
+      background: rgba(148, 163, 184, 0.15);
+      color: #cbd5e1;
+      border: 1px solid rgba(148, 163, 184, 0.3);
+    }
+
+    /* Active Sprint View */
+    .active-sprint-header {
+      background: rgba(99, 102, 241, 0.1);
+      border: 1px solid rgba(99, 102, 241, 0.2);
+      padding: 1.25rem;
+      border-radius: 12px;
+      margin-bottom: 2rem;
+    }
+
+    .active-sprint-header h3 {
+      font-size: 1.3rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .sprint-metadata {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.5rem;
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    .sprint-metadata strong {
+      color: var(--text-main);
+    }
+
+    .task-status-card {
+      background: rgba(30, 41, 59, 0.3);
+      border: 1px solid var(--glass-border);
+      padding: 1.25rem;
+      border-radius: 12px;
+      margin-bottom: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    @media (min-width: 640px) {
+      .task-status-card {
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+      }
+    }
+
+    .task-status-info {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .task-status-info h4 {
+      font-size: 1.1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .task-status-info p {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .task-status-actions {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .pr-link {
+      color: var(--primary);
+      text-decoration: none;
+      font-size: 0.9rem;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
+    .pr-link:hover {
+      text-decoration: underline;
+    }
+
+    /* Q&A Log */
+    .qalog-list {
+      max-height: 400px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .qalog-card {
+      background: rgba(15, 23, 42, 0.4);
+      border: 1px solid var(--glass-border);
+      padding: 1rem;
+      border-radius: 10px;
+      font-size: 0.9rem;
+    }
+
+    .qalog-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.5rem;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .qalog-body {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .qalog-question {
+      font-style: italic;
+      color: #e2e8f0;
+      border-left: 2px solid var(--primary);
+      padding-left: 0.5rem;
+    }
+
+    .qalog-answer {
+      color: #94a3b8;
+    }
+
+    .qalog-footer {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      margin-top: 0.5rem;
+      color: var(--text-muted);
+    }
+
+    /* Keyframes */
+    @keyframes pulse {
+      0%, 100% {
+        opacity: 1;
+      }
+      50% {
+        opacity: 0.6;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="dashboard-container">
+    
+    <!-- Top Header -->
+    <div class="header-row">
+      <div class="logo-area">
+        <h1>Jules Supervisor</h1>
+        <p>Autonomous supervisor for Google Jules AI coding sessions</p>
+      </div>
+      <div class="security-panel">
+        <label for="portal-secret-input">Portal Secret Key:</label>
+        <input type="password" id="portal-secret-input" placeholder="Enter PORTAL_SECRET" style="width: 180px; padding: 0.4rem 0.75rem; font-size: 0.85rem;">
+      </div>
+    </div>
+
+    <!-- LEFT COLUMN: Sprint Configurator or Active Control -->
+    <div class="left-column">
+      
+      <!-- SPRINT CREATION FORM -->
+      <div id="sprint-creation-card" class="glass-card">
+        <div class="card-title">
+          <h2>Create New Sprint</h2>
+        </div>
+        
+        <form id="sprint-form">
+          <div class="form-group">
+            <label for="sprint-title">Sprint Title</label>
+            <input type="text" id="sprint-title" required placeholder="e.g. Sprint 24 - Authentication System">
+          </div>
+
+          <div class="form-group">
+            <label for="main-branch">Base / Main Branch</label>
+            <input type="text" id="main-branch" value="main" required placeholder="e.g. main">
+          </div>
+
+          <!-- Plan Sections -->
+          <div class="editor-section">
+            <h3 style="margin-bottom: 0.75rem; font-size: 1.1rem; display: flex; justify-content: space-between; align-items: center;">
+              Plan Context Sections
+              <button type="button" class="btn btn-secondary" style="padding: 0.3rem 0.75rem; font-size: 0.8rem;" onclick="addPlanSection()">+ Add Section</button>
+            </h3>
+            <div id="plan-sections-container">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+
+          <!-- Tasks List -->
+          <div class="editor-section">
+            <h3 style="margin-bottom: 0.75rem; font-size: 1.1rem; display: flex; justify-content: space-between; align-items: center;">
+              Sprint Tasks
+              <button type="button" class="btn btn-secondary" style="padding: 0.3rem 0.75rem; font-size: 0.8rem;" onclick="addTaskItem()">+ Add Task</button>
+            </h3>
+            <div id="tasks-container">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+
+          <button type="submit" class="btn" style="width: 100%; font-size: 1.1rem; padding: 0.9rem;">
+            Save & Prepare Sprint Draft
+          </button>
+        </form>
+      </div>
+
+      <!-- ACTIVE SPRINT PANEL (Hidden by default) -->
+      <div id="sprint-active-card" class="glass-card" style="display: none;">
+        <div class="card-title">
+          <h2>Active Sprint Control</h2>
+          <button class="btn btn-danger" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;" onclick="resetToDraft()">Reset / New Sprint</button>
+        </div>
+
+        <div class="active-sprint-header">
+          <h3 id="active-sprint-title">Sprint Title</h3>
+          <div class="sprint-metadata">
+            <div>Status: <strong id="active-sprint-status" class="badge">DRAFT</strong></div>
+            <div>Branch: <strong id="active-sprint-branch">N/A</strong></div>
+          </div>
+        </div>
+
+        <div id="start-sprint-area" style="margin-bottom: 2rem;">
+          <button class="btn" id="start-sprint-btn" onclick="startSprint()" style="width: 100%; font-size: 1.1rem; padding: 0.9rem;">
+            🚀 Start Sprint & Launch Jules Sessions
+          </button>
+        </div>
+
+        <div class="card-subtitle" style="font-size: 1.2rem; font-weight: 600; margin-bottom: 1rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.5rem;">
+          Task Statuses
+        </div>
+        <div id="active-tasks-list">
+          <!-- Dynamically populated by status polls -->
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT COLUMN: Live Status Board & Q&A log -->
+    <div class="right-column" style="display: flex; flex-direction: column; gap: 2rem;">
+      
+      <!-- GENERAL STATUS & TELEGRAM NOTIFICATION BADGE -->
+      <div class="glass-card">
+        <div class="card-title">
+          <h2>Live Monitoring</h2>
+        </div>
+        <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+          <div style="flex: 1; background: rgba(15, 23, 42, 0.4); padding: 1.25rem; border-radius: 12px; text-align: center; border: 1px solid var(--glass-border);">
+            <div style="font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.25rem;">Active Escalations</div>
+            <div id="escalation-count-box" style="font-size: 2.2rem; font-weight: 700; color: var(--warning);">0</div>
+            <div id="escalation-reminder-text" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Waiting for Telegram reply</div>
+          </div>
+          <div style="flex: 1; background: rgba(15, 23, 42, 0.4); padding: 1.25rem; border-radius: 12px; text-align: center; border: 1px solid var(--glass-border);">
+            <div style="font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.25rem;">Polling Health</div>
+            <div id="polling-health-box" style="font-size: 1.1rem; font-weight: 600; color: var(--neutral); margin-top: 0.8rem;">INACTIVE</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Q&A LOGS -->
+      <div class="glass-card">
+        <div class="card-title">
+          <h2>Supervisor Q&A Log</h2>
+        </div>
+        <div id="qalog-empty-message" style="color: var(--text-muted); text-align: center; padding: 2rem 0;">
+          No questions logged yet.
+        </div>
+        <div class="qalog-list" id="qalog-list">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+    let planSectionsList = [];
+    let tasksList = [];
+    let activeSprintId = null;
+    let pollInterval = null;
+    let qaInterval = null;
+
+    // Load portal secret from localStorage
+    const secretInput = document.getElementById('portal-secret-input');
+    const savedSecret = localStorage.getItem('jules_supervisor_secret');
+    if (savedSecret) {
+      secretInput.value = savedSecret;
+    }
+    secretInput.addEventListener('input', () => {
+      localStorage.setItem('jules_supervisor_secret', secretInput.value);
+    });
+
+    const getHeaders = () => {
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+      if (secretInput.value) {
+        headers['x-portal-key'] = secretInput.value;
+      }
+      return headers;
+    };
+
+    // Save/Restore Form State to prevent losing work
+    const saveFormDraft = () => {
+      const draft = {
+        title: document.getElementById('sprint-title').value,
+        mainBranch: document.getElementById('main-branch').value,
+        sections: planSectionsList,
+        tasks: tasksList
+      };
+      localStorage.setItem('jules_sprint_draft', JSON.stringify(draft));
+    };
+
+    const loadFormDraft = () => {
+      const raw = localStorage.getItem('jules_sprint_draft');
+      if (raw) {
+        try {
+          const draft = JSON.parse(raw);
+          document.getElementById('sprint-title').value = draft.title || '';
+          document.getElementById('main-branch').value = draft.mainBranch || 'main';
+          
+          planSectionsList = draft.sections || [];
+          tasksList = draft.tasks || [];
+          
+          renderPlanSections();
+          renderTasks();
+        } catch (e) {
+          console.error(e);
+        }
+      } else {
+        // Add one default section and task
+        addPlanSection('sprint_context', 'Add sprint goals or details here...');
+        addTaskItem();
+      }
+    };
+
+    // --- PLAN SECTIONS EDITOR ---
+    function addPlanSection(key = '', content = '') {
+      planSectionsList.push({ key, content });
+      renderPlanSections();
+      updateAllTasksContextDropdowns();
+      saveFormDraft();
+    }
+
+    function removePlanSection(index) {
+      planSectionsList.splice(index, 1);
+      renderPlanSections();
+      updateAllTasksContextDropdowns();
+      saveFormDraft();
+    }
+
+    function onSectionChange(index, field, value) {
+      planSectionsList[index][field] = value;
+      saveFormDraft();
+      if (field === 'key') {
+        updateAllTasksContextDropdowns();
+      }
+    }
+
+    function renderPlanSections() {
+      const container = document.getElementById('plan-sections-container');
+      container.innerHTML = '';
+      
+      planSectionsList.forEach((sec, idx) => {
+        const item = document.createElement('div');
+        item.className = 'editor-item';
+        item.innerHTML = `
+          <div class="item-header">
+            <span class="item-number">Section #${idx + 1}</span>
+            <button type="button" class="btn btn-secondary btn-danger" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;" onclick="removePlanSection(${idx})">Remove</button>
+          </div>
+          <div class="form-group">
+            <input type="text" placeholder="Section Key (e.g. db_schema)" value="${sec.key}" oninput="onSectionChange(${idx}, 'key', this.value)" required>
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <textarea placeholder="Section Content / Documentation" rows="3" oninput="onSectionChange(${idx}, 'content', this.value)" required>${sec.content}</textarea>
+          </div>
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    // --- TASKS EDITOR ---
+    function addTaskItem() {
+      tasksList.push({
+        id: 'task_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
+        title: '',
+        description: '',
+        mode: 'ai_assisted',
+        jules_notes: '',
+        depends_on: [],
+        context_sections: []
+      });
+      renderTasks();
+      saveFormDraft();
+    }
+
+    function removeTaskItem(index) {
+      tasksList.splice(index, 1);
+      renderTasks();
+      saveFormDraft();
+    }
+
+    function onTaskChange(index, field, value) {
+      tasksList[index][field] = value;
+      saveFormDraft();
+    }
+
+    function onTaskCheckboxChange(taskIdx, field, value, checked) {
+      const list = tasksList[taskIdx][field];
+      if (checked) {
+        if (!list.includes(value)) list.push(value);
+      } else {
+        const idx = list.indexOf(value);
+        if (idx !== -1) list.splice(idx, 1);
+      }
+      saveFormDraft();
+    }
+
+    function updateAllTasksContextDropdowns() {
+      // Re-render tasks to update the checkbox listings for dependencies and context sections
+      const activeTextareas = {};
+      // Store current user text so re-rendering doesn't wipe active typing
+      tasksList.forEach((t) => {
+        const titleEl = document.getElementById(`t-title-${t.id}`);
+        const descEl = document.getElementById(`t-desc-${t.id}`);
+        const notesEl = document.getElementById(`t-notes-${t.id}`);
+        if (titleEl) t.title = titleEl.value;
+        if (descEl) t.description = descEl.value;
+        if (notesEl) t.jules_notes = notesEl.value;
+      });
+      renderTasks();
+    }
+
+    function renderTasks() {
+      const container = document.getElementById('tasks-container');
+      container.innerHTML = '';
+
+      if (tasksList.length === 0) {
+        container.innerHTML = '<div style="text-align: center; color: var(--text-muted); font-size: 0.9rem; padding: 1rem 0;">No tasks added yet.</div>';
+        return;
+      }
+
+      tasksList.forEach((task, idx) => {
+        const item = document.createElement('div');
+        item.className = 'editor-item';
+        
+        // Context sections checkboxes
+        let contextSectionCheckboxes = '';
+        planSectionsList.forEach(sec => {
+          if (!sec.key) return;
+          const checked = task.context_sections.includes(sec.key) ? 'checked' : '';
+          contextSectionCheckboxes += `
+            <label class="checkbox-item">
+              <input type="checkbox" value="${sec.key}" ${checked} onchange="onTaskCheckboxChange(${idx}, 'context_sections', this.value, this.checked)">
+              ${sec.key}
+            </label>
+          `;
+        });
+
+        // Dependencies checkboxes (other tasks except this one)
+        let dependencyCheckboxes = '';
+        tasksList.forEach((otherTask, oIdx) => {
+          if (oIdx === idx) return; // cannot depend on self
+          const otherTitle = otherTask.title || `Task #${oIdx + 1}`;
+          const checked = task.depends_on.includes(otherTask.id) ? 'checked' : '';
+          dependencyCheckboxes += `
+            <label class="checkbox-item">
+              <input type="checkbox" value="${otherTask.id}" ${checked} onchange="onTaskCheckboxChange(${idx}, 'depends_on', this.value, this.checked)">
+              ${otherTitle}
+            </label>
+          `;
+        });
+
+        item.innerHTML = `
+          <div class="item-header">
+            <span class="item-number">Task #${idx + 1}</span>
+            <button type="button" class="btn btn-secondary btn-danger" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;" onclick="removeTaskItem(${idx})">Remove</button>
+          </div>
+          
+          <div class="form-group">
+            <label>Title</label>
+            <input type="text" id="t-title-${task.id}" placeholder="e.g. Implement User Database Schema" value="${task.title}" oninput="onTaskChange(${idx}, 'title', this.value)" required>
+          </div>
+
+          <div class="form-group">
+            <label>Description (AI instructions)</label>
+            <textarea id="t-desc-${task.id}" placeholder="Specify what code to create/modify..." rows="3" oninput="onTaskChange(${idx}, 'description', this.value)" required>${task.description}</textarea>
+          </div>
+
+          <div class="flex-row">
+            <div class="form-group">
+              <label>Supervisor Mode</label>
+              <select onchange="onTaskChange(${idx}, 'mode', this.value)">
+                <option value="ai_assisted" ${task.mode === 'ai_assisted' ? 'selected' : ''}>AI-Assisted (Auto Answer)</option>
+                <option value="manual" ${task.mode === 'manual' ? 'selected' : ''}>Manual (Always Escalate)</option>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label>Special Notes for Jules (Optional)</label>
+              <textarea id="t-notes-${task.id}" placeholder="Rules or formatting hints..." rows="1" oninput="onTaskChange(${idx}, 'jules_notes', this.value)">${task.jules_notes || ''}</textarea>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Included Context Sections</label>
+            <div class="checkbox-grid">
+              ${contextSectionCheckboxes || '<span style="font-size: 0.8rem; color: var(--text-muted);">No sections created yet</span>'}
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0;">
+            <label>Depends On Tasks</label>
+            <div class="checkbox-grid">
+              ${dependencyCheckboxes || '<span style="font-size: 0.8rem; color: var(--text-muted);">No other tasks in list</span>'}
+            </div>
+          </div>
+        `;
+        container.appendChild(item);
+      });
+    }
+
+    // --- FORM SUBMIT (CREATE SPRINT) ---
+    document.getElementById('sprint-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      // Final capture of active input values
+      tasksList.forEach((t) => {
+        const titleEl = document.getElementById(`t-title-${t.id}`);
+        const descEl = document.getElementById(`t-desc-${t.id}`);
+        const notesEl = document.getElementById(`t-notes-${t.id}`);
+        if (titleEl) t.title = titleEl.value;
+        if (descEl) t.description = descEl.value;
+        if (notesEl) t.jules_notes = notesEl.value;
+      });
+
+      const body = {
+        title: document.getElementById('sprint-title').value,
+        mainBranch: document.getElementById('main-branch').value,
+        planSections: planSectionsList,
+        tasks: tasksList
+      };
+
+      try {
+        const response = await fetch('/api/sprints', {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify(body)
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          alert('Error creating sprint: ' + (err.error || response.statusText));
+          return;
+        }
+
+        const data = await response.json();
+        activeSprintId = data.sprintId;
+        
+        // Show active sprint board
+        document.getElementById('sprint-creation-card').style.display = 'none';
+        document.getElementById('sprint-active-card').style.display = 'block';
+
+        // Load active view
+        loadActiveSprint();
+      } catch (err) {
+        console.error(err);
+        alert('Network error creating sprint: ' + err.message);
+      }
+    });
+
+    // --- ACTIVE CONTROL BOARD ---
+    async function loadActiveSprint() {
+      if (!activeSprintId) return;
+
+      try {
+        const response = await fetch(`/api/sprints/${activeSprintId}`, {
+          headers: getHeaders()
+        });
+        if (!response.ok) return;
+
+        const sprint = await response.json();
+        
+        document.getElementById('active-sprint-title').innerText = sprint.title;
+        const statusBadge = document.getElementById('active-sprint-status');
+        statusBadge.innerText = sprint.status;
+        statusBadge.className = 'badge'; // reset
+        statusBadge.classList.add(`badge-${sprint.status}`);
+
+        document.getElementById('active-sprint-branch').innerText = sprint.sprint_branch || 'N/A (Draft)';
+        
+        const startArea = document.getElementById('start-sprint-area');
+        if (sprint.status === 'draft') {
+          startArea.style.display = 'block';
+        } else {
+          startArea.style.display = 'none';
+        }
+
+        // Run status poll once immediately
+        await pollStatus();
+        
+        // Start polling status
+        if (pollInterval) clearInterval(pollInterval);
+        pollInterval = setInterval(pollStatus, 10000);
+        document.getElementById('polling-health-box').innerText = 'ACTIVE (10s)';
+        document.getElementById('polling-health-box').style.color = 'var(--success)';
+
+        // Start QA log updates
+        await updateQALog();
+        if (qaInterval) clearInterval(qaInterval);
+        qaInterval = setInterval(updateQALog, 10000);
+
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function startSprint() {
+      const btn = document.getElementById('start-sprint-btn');
+      btn.disabled = true;
+      btn.innerText = 'Starting...';
+
+      try {
+        const response = await fetch(`/api/sprints/${activeSprintId}/start`, {
+          method: 'POST',
+          headers: getHeaders()
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          alert('Error starting sprint: ' + (err.error || response.statusText));
+          btn.disabled = false;
+          btn.innerText = '🚀 Start Sprint & Launch Jules Sessions';
+          return;
+        }
+
+        const data = await response.json();
+        console.log('Sprint started', data);
+        
+        // Reload details
+        await loadActiveSprint();
+      } catch (err) {
+        console.error(err);
+        alert('Failed to start sprint: ' + err.message);
+        btn.disabled = false;
+        btn.innerText = '🚀 Start Sprint & Launch Jules Sessions';
+      }
+    }
+
+    async function pollStatus() {
+      if (!activeSprintId) return;
+
+      try {
+        const response = await fetch(`/api/status/${activeSprintId}`, {
+          headers: getHeaders()
+        });
+        if (!response.ok) return;
+
+        const data = await response.json();
+        
+        // Update sprint status badge
+        const statusBadge = document.getElementById('active-sprint-status');
+        statusBadge.innerText = data.sprint.status;
+        statusBadge.className = 'badge';
+        statusBadge.classList.add(`badge-${data.sprint.status}`);
+
+        // Update active branch
+        document.getElementById('active-sprint-branch').innerText = data.sprint.sprint_branch || 'N/A';
+
+        // Update escalation counter
+        document.getElementById('escalation-count-box').innerText = data.unresolvedPendingCount;
+        if (data.unresolvedPendingCount > 0) {
+          document.getElementById('escalation-count-box').style.color = 'var(--warning)';
+          document.getElementById('escalation-reminder-text').style.display = 'block';
+        } else {
+          document.getElementById('escalation-count-box').style.color = 'var(--neutral)';
+          document.getElementById('escalation-reminder-text').style.display = 'none';
+        }
+
+        // Render tasks
+        const listContainer = document.getElementById('active-tasks-list');
+        listContainer.innerHTML = '';
+
+        if (data.tasks.length === 0) {
+          listContainer.innerHTML = '<div style="color: var(--text-muted); font-size: 0.9rem;">No tasks inside this sprint.</div>';
+          return;
+        }
+
+        data.tasks.forEach(task => {
+          const card = document.createElement('div');
+          card.className = 'task-status-card';
+          
+          let actionContent = '';
+          if (task.pr_url) {
+            actionContent = `<a href="${task.pr_url}" target="_blank" class="pr-link">View PR #${task.pr_url.split('/').pop()} ↗</a>`;
+          }
+
+          let retryContent = '';
+          if (task.retry_count > 0) {
+            retryContent = `<span style="font-size: 0.8rem; color: var(--danger); font-weight: 500; margin-left: 0.5rem;">(Retries: ${task.retry_count})</span>`;
+          }
+
+          let statusDetailText = '';
+          if (task.status === 'waiting_answer') {
+            statusDetailText = '<div style="font-size: 0.8rem; color: var(--warning); margin-top: 0.25rem; font-weight: 500;">🔔 Escalated to Telegram: awaiting response</div>';
+          } else if (task.status === 'running') {
+            statusDetailText = `<div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">Session: <code>${task.jules_session_id || 'starting...'}</code></div>`;
+          }
+
+          card.innerHTML = `
+            <div class="task-status-info">
+              <h4>${task.title} ${retryContent}</h4>
+              <p>ID: ${task.id} ${statusDetailText}</p>
+            </div>
+            <div class="task-status-actions">
+              ${actionContent}
+              <span class="badge badge-${task.status}">${task.status}</span>
+            </div>
+          `;
+          listContainer.appendChild(card);
+        });
+
+        // If sprint is completed or failed, we can stop status polling
+        if (data.sprint.status === 'complete' || data.sprint.status === 'failed') {
+          clearInterval(pollInterval);
+          document.getElementById('polling-health-box').innerText = 'COMPLETED';
+          document.getElementById('polling-health-box').style.color = 'var(--neutral)';
+        }
+
+      } catch (err) {
+        console.error('Status poll error:', err);
+      }
+    }
+
+    async function updateQALog() {
+      if (!activeSprintId) return;
+
+      try {
+        const response = await fetch(`/api/sprints/${activeSprintId}/qalog`, {
+          headers: getHeaders()
+        });
+        if (!response.ok) return;
+
+        const logs = await response.json();
+        const container = document.getElementById('qalog-list');
+        const emptyMsg = document.getElementById('qalog-empty-message');
+
+        if (logs.length === 0) {
+          container.innerHTML = '';
+          emptyMsg.style.display = 'block';
+          return;
+        }
+
+        emptyMsg.style.display = 'none';
+        container.innerHTML = '';
+
+        logs.forEach(log => {
+          const card = document.createElement('div');
+          card.className = 'qalog-card';
+          
+          let confidenceBadge = '';
+          if (log.confidence_score !== null) {
+            const scoreColor = log.confidence_score >= 7 ? 'var(--success)' : 'var(--warning)';
+            confidenceBadge = `<span style="color: ${scoreColor}; font-weight: 600;">Conf: ${log.confidence_score}/10</span>`;
+          }
+
+          const timeString = new Date(log.created_at).toLocaleTimeString();
+
+          card.innerHTML = `
+            <div class="qalog-header">
+              <span>Task: <strong>${log.task_title}</strong></span>
+              <span>${timeString}</span>
+            </div>
+            <div class="qalog-body">
+              <div class="qalog-question"><strong>Q:</strong> ${log.jules_question}</div>
+              <div class="qalog-answer"><strong>A:</strong> ${log.answer}</div>
+            </div>
+            <div class="qalog-footer">
+              <span>By: <strong class="badge badge-${log.answered_by === 'telegram' ? 'waiting_answer' : 'pr_open'}" style="padding: 0.1rem 0.4rem; font-size: 0.7rem;">${log.answered_by}</strong></span>
+              ${confidenceBadge}
+            </div>
+          `;
+          container.appendChild(card);
+        });
+      } catch (err) {
+        console.error('QA Log fetch error:', err);
+      }
+    }
+
+    function resetToDraft() {
+      if (confirm('Are you sure you want to exit active tracking? This will stop active monitoring on this page, but server processing continues in the background.')) {
+        if (pollInterval) clearInterval(pollInterval);
+        if (qaInterval) clearInterval(qaInterval);
+        
+        activeSprintId = null;
+        document.getElementById('sprint-active-card').style.display = 'none';
+        document.getElementById('sprint-creation-card').style.display = 'block';
+        
+        document.getElementById('polling-health-box').innerText = 'INACTIVE';
+        document.getElementById('polling-health-box').style.color = 'var(--neutral)';
+        document.getElementById('escalation-count-box').innerText = '0';
+        document.getElementById('escalation-count-box').style.color = 'var(--neutral)';
+        document.getElementById('escalation-reminder-text').style.display = 'none';
+        
+        loadFormDraft();
+      }
+    }
+
+    // Startup Initialization
+    window.addEventListener('load', () => {
+      loadFormDraft();
+    });
+  </script>
+</body>
+</html>

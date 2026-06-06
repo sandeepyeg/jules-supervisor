@@ -1194,12 +1194,16 @@
 
     // --- TASK EDITOR LOGIC ---
     function getTaskDependencyType(task, idx) {
+      if (task.dependency_type) return task.dependency_type;
       if (!task.depends_on || task.depends_on.length === 0) {
         if (idx === 0) return 'sequential';
-        return 'parallel';
+        return 'independent';
       }
       if (task.depends_on.length === 1 && idx > 0 && task.depends_on[0] === tasksList[idx - 1].id) {
         return 'sequential';
+      }
+      if (task.parallel_with_task_id) {
+        return 'parallel';
       }
       return 'custom';
     }
@@ -1209,17 +1213,32 @@
         if (idx === 0) {
           task.depends_on = [];
           task.dependency_type = 'sequential';
+          task.parallel_with_task_id = null;
         } else {
           if (!task.dependency_type) {
             task.dependency_type = getTaskDependencyType(task, idx);
           }
           if (task.dependency_type === 'sequential') {
             task.depends_on = [tasksList[idx - 1].id];
-          } else if (task.dependency_type === 'parallel') {
+            task.parallel_with_task_id = null;
+          } else if (task.dependency_type === 'independent') {
             task.depends_on = [];
+            task.parallel_with_task_id = null;
+          } else if (task.dependency_type === 'parallel') {
+            const targetTask = tasksList.find(t => t.id === task.parallel_with_task_id);
+            const targetIdx = tasksList.indexOf(targetTask);
+            if (targetTask && targetIdx < idx) {
+              task.depends_on = [...targetTask.depends_on];
+            } else {
+              task.depends_on = [];
+              task.parallel_with_task_id = null;
+            }
           } else if (task.dependency_type === 'custom') {
-            const priorIds = tasksList.slice(0, idx).map(t => t.id);
-            task.depends_on = (task.depends_on || []).filter(id => priorIds.includes(id));
+            task.parallel_with_task_id = null;
+            const validPriorIds = tasksList.slice(0, idx)
+              .filter(t => t.dependency_type !== 'independent')
+              .map(t => t.id);
+            task.depends_on = (task.depends_on || []).filter(id => validPriorIds.includes(id));
           }
         }
       });
@@ -1356,6 +1375,15 @@
       saveFormDraft();
     }
 
+    function onParallelWithChange(targetTaskId) {
+      if (selectedTaskIndex < 0 || selectedTaskIndex >= tasksList.length) return;
+      const task = tasksList[selectedTaskIndex];
+      task.parallel_with_task_id = targetTaskId;
+      recalculateSequentialDependencies();
+      renderTasks();
+      saveFormDraft();
+    }
+
     function renderTasks() {
       // 1. Render left list pane
       const listPane = document.getElementById('tasks-list-pane');
@@ -1405,8 +1433,9 @@
         let typeSelect = `
           <select id="t-deptype-selected" onchange="onDependencyTypeChange(this.value)" style="margin-bottom: 0.5rem; font-size: 0.8rem; padding: 0.45rem 0.75rem; border-radius: 8px; background: rgba(10, 15, 26, 0.6); color: var(--text-main); border: 1px solid var(--glass-border); width: 100%;">
             <option value="sequential" ${depType === 'sequential' ? 'selected' : ''}>🔗 Waits for previous task (Sequential)</option>
-            <option value="parallel" ${depType === 'parallel' ? 'selected' : ''}>⚡ Starts immediately (Parallel / Independent)</option>
-            <option value="custom" ${depType === 'custom' ? 'selected' : ''}>🛠️ Waits for custom tasks...</option>
+            <option value="parallel" ${depType === 'parallel' ? 'selected' : ''}>⚡ Runs alongside another task (Parallel)</option>
+            <option value="independent" ${depType === 'independent' ? 'selected' : ''}>🟢 Starts immediately & standalone (Independent)</option>
+            <option value="custom" ${depType === 'custom' ? 'selected' : ''}>🛠️ Waits for custom tasks (Custom)...</option>
           </select>
         `;
 
@@ -1418,16 +1447,35 @@
               Will wait for Task #${selectedTaskIndex}: "${priorTitle}" to finish.
             </div>
           `;
-        } else if (depType === 'parallel') {
+        } else if (depType === 'independent') {
           extraOptions = `
             <div style="font-size: 0.75rem; color: var(--success); padding: 0.4rem 0.6rem; background: rgba(16, 185, 129, 0.05); border: 1px solid rgba(16, 185, 129, 0.15); border-radius: 6px;">
-              No dependencies. Runs in parallel / independently.
+              Standalone task. Starts immediately on launch and does not block other tasks.
+            </div>
+          `;
+        } else if (depType === 'parallel') {
+          let options = '<option value="">-- Select Task to Run With --</option>';
+          for (let i = 0; i < selectedTaskIndex; i++) {
+            const prior = tasksList[i];
+            const priorTitle = prior.title || `Task #${i + 1}`;
+            const selected = task.parallel_with_task_id === prior.id ? 'selected' : '';
+            options += `<option value="${prior.id}" ${selected}>Task #${i + 1}: ${priorTitle}</option>`;
+          }
+          extraOptions = `
+            <div style="display: flex; flex-direction: column; gap: 0.4rem;">
+              <select id="t-parallel-with-selected" onchange="onParallelWithChange(this.value)" style="font-size: 0.8rem; padding: 0.45rem 0.75rem; border-radius: 8px; background: rgba(10, 15, 26, 0.6); color: var(--text-main); border: 1px solid var(--glass-border); width: 100%;">
+                ${options}
+              </select>
+              <div style="font-size: 0.72rem; color: var(--text-muted); padding: 0.2rem 0.4rem;">
+                Copies the dependency rules of the selected task to execute alongside it. Other tasks can wait for this task to finish as well.
+              </div>
             </div>
           `;
         } else if (depType === 'custom') {
           let checkboxes = '';
           for (let i = 0; i < selectedTaskIndex; i++) {
             const priorTask = tasksList[i];
+            if (priorTask.dependency_type === 'independent') continue;
             const priorTitle = priorTask.title || `Task #${i + 1}`;
             const checked = (task.depends_on || []).includes(priorTask.id) ? 'checked' : '';
             checkboxes += `
@@ -1439,7 +1487,7 @@
           }
           extraOptions = `
             <div class="checkbox-grid" style="display: flex; flex-direction: column; gap: 0.3rem; background: rgba(10, 15, 26, 0.35); padding: 0.65rem; border-radius: 8px; border: 1px solid var(--glass-border);">
-              ${checkboxes || '<span style="font-size: 0.75rem; color: var(--text-muted);">No prior tasks available</span>'}
+              ${checkboxes || '<span style="font-size: 0.75rem; color: var(--text-muted);">No prior non-independent tasks available</span>'}
             </div>
           `;
         }

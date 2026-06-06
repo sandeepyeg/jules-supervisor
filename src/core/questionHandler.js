@@ -34,7 +34,7 @@ export async function handleQuestion(task, question, activityId) {
   }
 
   // 3. Build context
-  const context = await buildContext(task, task.sprint_id);
+  const context = await buildContext(task, task.phase_id);
 
   // 4. Ask with confidence using DeepSeek
   console.log(`Consulting AI with confidence threshold ${AI_CONFIDENCE_THRESHOLD}...`);

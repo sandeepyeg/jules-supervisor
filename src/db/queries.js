@@ -1,17 +1,23 @@
 import { pool } from './connection.js';
 
-export async function getSprint(sprintId) {
-  const [rows] = await pool.query('SELECT * FROM sprints WHERE id = ?', [sprintId]);
+/**
+ * Retrieves a phase record by ID.
+ */
+export async function getPhase(phaseId) {
+  const [rows] = await pool.query('SELECT * FROM phases WHERE id = ?', [phaseId]);
   return rows[0] || null;
 }
 
-export async function updateSprintStatus(sprintId, status, extra = {}) {
+/**
+ * Updates the status and metadata of a phase.
+ */
+export async function updatePhaseStatus(phaseId, status, extra = {}) {
   const fields = ['status = ?'];
   const values = [status];
   
-  if (extra.sprint_branch !== undefined) {
-    fields.push('sprint_branch = ?');
-    values.push(extra.sprint_branch);
+  if (extra.phase_branch !== undefined) {
+    fields.push('phase_branch = ?');
+    values.push(extra.phase_branch);
   }
   if (extra.main_branch !== undefined) {
     fields.push('main_branch = ?');
@@ -26,21 +32,22 @@ export async function updateSprintStatus(sprintId, status, extra = {}) {
     values.push(extra.completed_at);
   }
   
-  values.push(sprintId);
-  const sql = `UPDATE sprints SET ${fields.join(', ')} WHERE id = ?`;
+  values.push(phaseId);
+  const sql = `UPDATE phases SET ${fields.join(', ')} WHERE id = ?`;
   await pool.query(sql, values);
 }
 
-export async function getPlanSections(sprintId) {
-  const [rows] = await pool.query('SELECT section_key, content FROM plan_sections WHERE sprint_id = ?', [sprintId]);
-  return rows;
-}
-
+/**
+ * Retrieves a task record by ID.
+ */
 export async function getTask(taskId) {
   const [rows] = await pool.query('SELECT * FROM tasks WHERE id = ?', [taskId]);
   return rows[0] || null;
 }
 
+/**
+ * Updates the status and runtime metadata of a task.
+ */
 export async function updateTaskStatus(taskId, status, extra = {}) {
   const fields = ['status = ?'];
   const values = [status];
@@ -71,25 +78,28 @@ export async function updateTaskStatus(taskId, status, extra = {}) {
   await pool.query(sql, values);
 }
 
-export async function getActiveTasks(sprintId) {
+/**
+ * Gets tasks that are currently active in a phase.
+ */
+export async function getActiveTasks(phaseId) {
   const [rows] = await pool.query(
-    "SELECT * FROM tasks WHERE sprint_id = ? AND status IN ('running', 'waiting_answer', 'pr_open')",
-    [sprintId]
+    "SELECT * FROM tasks WHERE phase_id = ? AND status IN ('running', 'waiting_answer', 'pr_open')",
+    [phaseId]
   );
   return rows;
 }
 
-export async function getQueuedReadyTasks(sprintId) {
-  // Select all tasks for this sprint to determine dependencies
-  const [tasks] = await pool.query('SELECT * FROM tasks WHERE sprint_id = ?', [sprintId]);
+/**
+ * Resolves queued tasks whose dependencies have already merged or skipped.
+ */
+export async function getQueuedReadyTasks(phaseId) {
+  const [tasks] = await pool.query('SELECT * FROM tasks WHERE phase_id = ?', [phaseId]);
   
-  // Create a map of taskId -> status
   const statusMap = new Map();
   for (const task of tasks) {
     statusMap.set(task.id, task.status);
   }
   
-  // Filter for ready tasks
   const readyTasks = [];
   for (const task of tasks) {
     if (task.status !== 'queued') continue;
@@ -99,11 +109,10 @@ export async function getQueuedReadyTasks(sprintId) {
       try {
         dependsOn = typeof task.depends_on === 'string' ? JSON.parse(task.depends_on) : task.depends_on;
       } catch (e) {
-        console.error('Error parsing depends_on for task', task.id, e);
+        console.error(`Error parsing depends_on for task #${task.id}:`, e);
       }
     }
     
-    // Check if all dependencies are merged or skipped
     const allDependenciesMerged = dependsOn.every(depId => {
       const status = statusMap.get(depId);
       return status === 'merged' || status === 'skipped';
@@ -117,6 +126,9 @@ export async function getQueuedReadyTasks(sprintId) {
   return readyTasks;
 }
 
+/**
+ * Logs QA transactions to the database.
+ */
 export async function logQA(taskId, question, answer, answeredBy, confidenceScore) {
   const [result] = await pool.query(
     'INSERT INTO qa_log (task_id, jules_question, answer, answered_by, confidence_score) VALUES (?, ?, ?, ?, ?)',
@@ -125,6 +137,9 @@ export async function logQA(taskId, question, answer, answeredBy, confidenceScor
   return result.insertId;
 }
 
+/**
+ * Logs an unresolved Telegram escalation for a task.
+ */
 export async function createTelegramPending(taskId, question, telegramMessageId) {
   const [result] = await pool.query(
     'INSERT INTO telegram_pending (task_id, jules_question, telegram_message_id) VALUES (?, ?, ?)',
@@ -133,6 +148,9 @@ export async function createTelegramPending(taskId, question, telegramMessageId)
   return result.insertId;
 }
 
+/**
+ * Checks for pending developer replies using the Telegram Message ID.
+ */
 export async function getTelegramPendingByMessageId(replyToMessageId) {
   const [rows] = await pool.query(
     'SELECT * FROM telegram_pending WHERE telegram_message_id = ? AND resolved = FALSE LIMIT 1',
@@ -141,10 +159,16 @@ export async function getTelegramPendingByMessageId(replyToMessageId) {
   return rows[0] || null;
 }
 
+/**
+ * Resolves a pending Telegram ticket.
+ */
 export async function resolveTelegramPending(pendingId) {
   await pool.query('UPDATE telegram_pending SET resolved = TRUE WHERE id = ?', [pendingId]);
 }
 
+/**
+ * Returns tickets that are overdue and require subsequent reminders.
+ */
 export async function getUnresolvedPendingOlderThan(ms) {
   const seconds = Math.round(ms / 1000);
   const [rows] = await pool.query(
@@ -154,6 +178,9 @@ export async function getUnresolvedPendingOlderThan(ms) {
   return rows;
 }
 
+/**
+ * Increments the reminder counter and updates timing.
+ */
 export async function updateReminderSent(pendingId) {
   await pool.query(
     'UPDATE telegram_pending SET reminder_count = reminder_count + 1, last_reminder_at = CURRENT_TIMESTAMP WHERE id = ?',

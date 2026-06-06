@@ -95,13 +95,13 @@ export async function handleSession(task) {
       if (task.retry_count < 1) {
         console.log(`Retrying task #${task.id}. Initializing a new Jules session.`);
         
-        const sprint = await queries.getSprint(task.sprint_id);
-        const sprintBranch = sprint.sprint_branch;
+        const phase = await queries.getPhase(task.phase_id);
+        const phaseBranch = phase.phase_branch;
         
-        const prompt = `${task.description}\n\nTarget branch: ${sprintBranch}\n\nNote: The previous attempt failed. Please try a different approach.`;
+        const prompt = `${task.description}\n\nTarget branch: ${phaseBranch}\n\nNote: The previous attempt failed. Please try a different approach.`;
         
         // Launch a new session
-        const { sessionId } = await jules.createSession(prompt, sprintBranch, task.jules_notes);
+        const { sessionId } = await jules.createSession(prompt, phaseBranch, task.jules_notes);
         
         // Update task database record
         await queries.updateTaskStatus(task.id, 'running', {

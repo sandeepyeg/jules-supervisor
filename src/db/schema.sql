@@ -1,35 +1,31 @@
-CREATE DATABASE IF NOT EXISTS jules_supervisor;
-USE jules_supervisor;
+DROP TABLE IF EXISTS telegram_pending;
+DROP TABLE IF EXISTS qa_log;
+DROP TABLE IF EXISTS tasks;
+DROP TABLE IF EXISTS plan_sections;
+DROP TABLE IF EXISTS sprints;
+DROP TABLE IF EXISTS phases;
 
-CREATE TABLE IF NOT EXISTS sprints (
+CREATE TABLE phases (
   id INT AUTO_INCREMENT PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
+  description TEXT,
   status ENUM('draft','active','complete','failed') DEFAULT 'draft',
-  sprint_branch VARCHAR(255),
+  phase_branch VARCHAR(255),
   main_branch VARCHAR(255) DEFAULT 'main',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   started_at TIMESTAMP NULL,
   completed_at TIMESTAMP NULL
 );
 
-CREATE TABLE IF NOT EXISTS plan_sections (
+CREATE TABLE tasks (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  sprint_id INT NOT NULL,
-  section_key VARCHAR(100) NOT NULL,
-  content TEXT NOT NULL,
-  FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS tasks (
-  id INT AUTO_INCREMENT PRIMARY KEY,
-  sprint_id INT NOT NULL,
+  phase_id INT NOT NULL,
   title VARCHAR(255) NOT NULL,
   description TEXT NOT NULL,
   jules_notes TEXT,
   mode ENUM('ai_assisted','manual') DEFAULT 'ai_assisted',
   status ENUM('queued','running','waiting_answer','pr_open','merged','failed','skipped') DEFAULT 'queued',
   depends_on JSON COMMENT 'Array of task IDs this task waits for',
-  context_sections JSON COMMENT 'Array of section_key strings to pull for Q&A',
   sort_order INT DEFAULT 0,
   jules_session_id VARCHAR(255),
   pr_url VARCHAR(500),
@@ -38,10 +34,10 @@ CREATE TABLE IF NOT EXISTS tasks (
   retry_count INT DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (sprint_id) REFERENCES sprints(id) ON DELETE CASCADE
+  FOREIGN KEY (phase_id) REFERENCES phases(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS qa_log (
+CREATE TABLE qa_log (
   id INT AUTO_INCREMENT PRIMARY KEY,
   task_id INT NOT NULL,
   jules_question TEXT NOT NULL,
@@ -52,7 +48,7 @@ CREATE TABLE IF NOT EXISTS qa_log (
   FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS telegram_pending (
+CREATE TABLE telegram_pending (
   id INT AUTO_INCREMENT PRIMARY KEY,
   task_id INT NOT NULL,
   jules_question TEXT NOT NULL,

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 
 import { runSchema } from './src/db/connection.js';
-import sprintsRouter from './src/api/sprints.js';
+import phasesRouter from './src/api/phases.js';
 import statusRouter from './src/api/status.js';
 import webhookRouter from './src/api/webhook.js';
 import tasksRouter from './src/api/tasks.js';
@@ -24,7 +24,7 @@ app.get('/', (req, res) => {
 });
 
 // Register API routes
-app.use('/api/sprints', sprintsRouter);
+app.use('/api/phases', phasesRouter);
 app.use('/api/status', statusRouter);
 app.use('/api/webhook', webhookRouter);
 app.use('/api/tasks', tasksRouter);

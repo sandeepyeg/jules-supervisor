@@ -5,24 +5,24 @@ import { createSession } from '../services/jules.js';
 /**
  * Gets tasks that are queued and ready to start (i.e. all dependencies are merged/skipped).
  */
-export async function getReadyTasks(sprintId) {
-  return getQueuedReadyTasks(sprintId);
+export async function getReadyTasks(phaseId) {
+  return getQueuedReadyTasks(phaseId);
 }
 
 /**
  * Launches Jules sessions for all ready tasks and updates their database status to 'running'.
  */
-export async function startReadyTasks(sprintId, sprintBranch) {
-  const readyTasks = await getReadyTasks(sprintId);
+export async function startReadyTasks(phaseId, phaseBranch) {
+  const readyTasks = await getReadyTasks(phaseId);
   let startedCount = 0;
 
   for (const task of readyTasks) {
     try {
       // Build the prompt containing the task description and target branch instruction
-      const prompt = `${task.description}\n\nTarget branch: ${sprintBranch}`;
+      const prompt = `${task.description}\n\nTarget branch: ${phaseBranch}`;
       
       // Start the Jules session
-      const { sessionId } = await createSession(prompt, sprintBranch, task.jules_notes);
+      const { sessionId } = await createSession(prompt, phaseBranch, task.jules_notes);
       
       // Update task status and session ID in database
       await updateTaskStatus(task.id, 'running', {
@@ -39,10 +39,10 @@ export async function startReadyTasks(sprintId, sprintBranch) {
 }
 
 /**
- * Checks if all tasks in a sprint have successfully finished (merged or skipped).
+ * Checks if all tasks in a phase have successfully finished (merged or skipped).
  */
-export async function checkAllMerged(sprintId) {
-  const [tasks] = await pool.query('SELECT status FROM tasks WHERE sprint_id = ?', [sprintId]);
+export async function checkAllMerged(phaseId) {
+  const [tasks] = await pool.query('SELECT status FROM tasks WHERE phase_id = ?', [phaseId]);
   if (tasks.length === 0) return false;
   
   return tasks.every(t => t.status === 'merged' || t.status === 'skipped');

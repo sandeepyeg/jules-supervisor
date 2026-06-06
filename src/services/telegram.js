@@ -23,16 +23,27 @@ if (!token || token.startsWith('your_')) {
     on: () => {}
   };
 } else {
-  const options = {};
   if (webhookUrl) {
-    options.polling = false;
+    // Webhook mode: disable polling entirely
+    bot = new TelegramBot(token, { polling: false });
     console.log('Telegram Bot configured for Webhook mode.');
   } else {
-    options.polling = true;
-    console.log('Telegram Bot configured for Long-Polling mode.');
+    // Long-polling mode: first create the bot without polling, clear any stale
+    // sessions from Telegram's side (prevents 409 Conflict on restart), then
+    // start polling cleanly.
+    bot = new TelegramBot(token, { polling: false });
+
+    bot.deleteWebhook({ drop_pending_updates: true })
+      .then(() => {
+        bot.startPolling();
+        console.log('Telegram Bot configured for Long-Polling mode (stale sessions cleared).');
+      })
+      .catch((err) => {
+        console.error('Failed to clear Telegram webhook before polling:', err.message);
+        // Start polling anyway — 409s will self-resolve after Telegram times out the old session
+        bot.startPolling();
+      });
   }
-  
-  bot = new TelegramBot(token, options);
 
   bot.on('message', (msg) => {
     // Only accept messages from your specific chat ID for security

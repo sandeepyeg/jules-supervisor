@@ -4,10 +4,9 @@ import * as questionHandler from '../core/questionHandler.js';
 const router = express.Router();
 
 /**
- * POST /api/webhook/telegram
- * Handles incoming webhooks from the Telegram Bot API when using webhook mode.
+ * Common handler for incoming webhooks from the Telegram Bot API.
  */
-router.post('/telegram', async (req, res) => {
+const handleUpdate = async (req, res) => {
   try {
     const update = req.body;
     
@@ -35,6 +34,30 @@ router.post('/telegram', async (req, res) => {
   
   // Always respond with 200 OK immediately to acknowledge receipt of webhook from Telegram
   res.status(200).send('OK');
-});
+};
+
+/**
+ * Secure Endpoint with path-based secret token matching.
+ */
+router.post('/telegram/:secret', (req, res, next) => {
+  const portalSecret = process.env.PORTAL_SECRET;
+  if (portalSecret && portalSecret !== 'choose_a_random_string' && req.params.secret !== portalSecret) {
+    console.warn('Blocked Telegram webhook call: Invalid secret token in URL path.');
+    return res.status(403).send('Forbidden');
+  }
+  next();
+}, handleUpdate);
+
+/**
+ * Fallback/Legacy Endpoint (returns 403 if PORTAL_SECRET is set but path token is missing).
+ */
+router.post('/telegram', (req, res, next) => {
+  const portalSecret = process.env.PORTAL_SECRET;
+  if (portalSecret && portalSecret !== 'choose_a_random_string') {
+    console.warn('Blocked unauthenticated Telegram webhook call: Missing secret path token.');
+    return res.status(403).send('Forbidden');
+  }
+  next();
+}, handleUpdate);
 
 export default router;

@@ -78,7 +78,10 @@ export async function sendNotification(text) {
  */
 export async function setupWebhook(appUrl) {
   if (bot.setWebHook) {
-    const hookUrl = `${appUrl}/api/webhook/telegram`;
+    const portalSecret = process.env.PORTAL_SECRET;
+    const hookUrl = (portalSecret && portalSecret !== 'choose_a_random_string')
+      ? `${appUrl}/api/webhook/telegram/${portalSecret}`
+      : `${appUrl}/api/webhook/telegram`;
     console.log(`Setting Telegram Webhook to: ${hookUrl}`);
     await bot.setWebHook(hookUrl);
   }

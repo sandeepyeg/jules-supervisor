@@ -111,18 +111,23 @@
       gap: 1.25rem;
     }
 
-    /* Header */
+    /* Header Row (Premium Glass Card) */
     .header-row {
+      background: var(--glass-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 14px;
+      padding: 1.2rem 1.5rem;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 8px 32px 0 rgba(2, 4, 8, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.05);
       display: flex;
       flex-direction: column;
       gap: 1rem;
-      padding: 0.5rem 0 1.25rem 0;
-      border-bottom: 1px solid var(--glass-border);
       align-items: flex-start;
       width: 100%;
+      margin-bottom: 0.5rem;
     }
 
-    @media (min-width: 640px) {
+    @media (min-width: 768px) {
       .header-row {
         flex-direction: row;
         align-items: center;
@@ -130,17 +135,69 @@
       }
     }
 
+    .logo-area {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+    }
+
+    .logo-icon {
+      background: var(--primary-gradient);
+      padding: 0.6rem;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 14px var(--primary-glow);
+      transition: transform 0.3s ease;
+    }
+
+    .header-row:hover .logo-icon {
+      transform: scale(1.05) rotate(3deg);
+    }
+
     .logo-area h1 {
-      font-size: 1.8rem;
+      font-size: 1.45rem;
+      font-weight: 700;
       background: linear-gradient(135deg, #a5b4fc, #e9d5ff);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
-      margin-bottom: 0.2rem;
+      margin: 0;
+      line-height: 1.15;
     }
 
     .logo-area p {
       color: var(--text-muted);
-      font-size: 0.85rem;
+      font-size: 0.78rem;
+      margin-top: 0.15rem;
+    }
+
+    /* System status pulsing indicator */
+    .system-status-indicator {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--neutral);
+      display: inline-block;
+      box-shadow: 0 0 6px var(--neutral);
+      transition: all 0.3s ease;
+      position: relative;
+    }
+
+    .system-status-indicator.online {
+      background-color: var(--success);
+      box-shadow: 0 0 8px var(--success);
+      animation: indicator-pulse 1.5s infinite alternate;
+    }
+
+    .system-status-indicator.offline {
+      background-color: var(--danger);
+      box-shadow: 0 0 8px var(--danger);
+    }
+
+    @keyframes indicator-pulse {
+      0% { opacity: 0.65; transform: scale(0.9); }
+      100% { opacity: 1; transform: scale(1.1); }
     }
 
     .security-panel {
@@ -157,6 +214,115 @@
       font-size: 0.8rem;
       color: var(--text-muted);
       white-space: nowrap;
+    }
+
+    /* Premium Custom Selector styling */
+    .phase-selector-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .phase-selector-select {
+      appearance: none;
+      -webkit-appearance: none;
+      background: rgba(10, 15, 26, 0.6);
+      border: 1px solid var(--glass-border);
+      color: var(--text-main);
+      padding: 0.45rem 2.2rem 0.45rem 0.85rem;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      outline: none;
+      cursor: pointer;
+      width: 170px;
+      transition: all 0.2s ease;
+    }
+
+    .phase-selector-select:hover {
+      border-color: rgba(99, 102, 241, 0.35);
+      background: rgba(15, 22, 36, 0.7);
+    }
+
+    .phase-selector-select:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 8px rgba(99, 102, 241, 0.15);
+    }
+
+    .phase-selector-select option {
+      background: #0d1321;
+      color: var(--text-main);
+    }
+
+    .phase-selector-icon {
+      position: absolute;
+      right: 0.75rem;
+      top: 50%;
+      transform: translateY(-50%);
+      pointer-events: none;
+      color: var(--text-muted);
+      width: 10px;
+      height: 10px;
+    }
+
+    /* Lock Button Accent & Animations */
+    .lock-btn {
+      height: 34px;
+      padding: 0 0.95rem;
+      font-size: 0.8rem;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      background: rgba(239, 68, 68, 0.04);
+      border: 1px solid rgba(239, 68, 68, 0.18);
+      color: #f87171;
+      box-shadow: none;
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .lock-btn:hover:not([disabled]) {
+      background: rgba(239, 68, 68, 0.08);
+      border-color: rgba(239, 68, 68, 0.4);
+      color: #ef4444;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 15px rgba(239, 68, 68, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+
+    .lock-btn:active {
+      transform: translateY(0);
+    }
+
+    .lock-btn svg {
+      width: 13px;
+      height: 13px;
+      overflow: visible;
+    }
+
+    .lock-shackle {
+      transform-origin: 17px 11px;
+      /* Open by default since the portal is currently unlocked */
+      transform: rotate(22deg) translate(2px, -3px);
+      transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    /* Closes the shackle on hover to simulate the locking action */
+    .lock-btn:hover .lock-shackle {
+      transform: rotate(0deg) translate(0px, 0px);
+      color: #ef4444;
+    }
+
+    /* Topbar phase pill */
+    #topbar-phase-status {
+      display: none;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(99, 102, 241, 0.08);
+      border: 1px solid rgba(99, 102, 241, 0.15);
+      padding: 0.4rem 0.75rem;
+      border-radius: 8px;
+      backdrop-filter: blur(10px);
     }
 
     /* Console Navigation Bar */
@@ -766,19 +932,44 @@
     <!-- Top Header -->
     <div class="header-row">
       <div class="logo-area">
-        <h1>Jules Supervisor</h1>
-        <p>Coordinate phases, execute Jules sessions, and verify PRs</p>
+        <div class="logo-icon">
+          <svg style="width: 20px; height: 20px; color: white;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <div>
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <h1>Jules Supervisor</h1>
+            <span class="system-status-indicator" id="system-status-indicator" title="API Status: Checking..."></span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.15rem;">
+            <p style="margin: 0; font-size: 0.75rem; color: var(--text-muted);">Multi-Agent Orchestrator</p>
+            <div id="topbar-phase-status" style="display: none; align-items: center; gap: 0.35rem; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.15); padding: 0.1rem 0.45rem; border-radius: 4px; backdrop-filter: blur(10px);">
+              <span style="font-size: 0.65rem; color: var(--text-muted); font-weight: 500;">Phase:</span>
+              <span id="topbar-phase-name" style="font-size: 0.68rem; font-weight: 600; color: var(--text-main); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">None</span>
+              <span id="topbar-phase-badge" class="badge" style="font-size: 0.55rem; padding: 0.05rem 0.35rem;">N/A</span>
+            </div>
+          </div>
+        </div>
       </div>
-      <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;" class="header-controls">
-        <div class="security-panel" style="width: auto; gap: 0.4rem;">
-          <label for="phase-selector">Load Phase:</label>
-          <select id="phase-selector" onchange="onPhaseSelect(this.value)" style="width: 160px; padding: 0.35rem 0.5rem; font-size: 0.8rem; border-radius: 6px; background: rgba(10, 15, 26, 0.6); color: var(--text-main); border: 1px solid var(--glass-border);">
+      
+      <div class="header-controls" style="display: flex; align-items: center; gap: 0.65rem;">
+        <div class="phase-selector-wrapper">
+          <select id="phase-selector" onchange="onPhaseSelect(this.value)" class="phase-selector-select">
             <option value="">-- Load Phase --</option>
           </select>
+          <svg class="phase-selector-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+            <path d="M6 9l6 6 6-6"/>
+          </svg>
         </div>
-        <div class="security-panel" style="width: auto; padding: 0.3rem 0.6rem;">
-          <button onclick="lockPortal()" class="btn btn-secondary" style="padding: 0.3rem 0.6rem; font-size: 0.75rem; border-radius: 6px; box-shadow: none; display: flex; align-items: center; gap: 0.2rem; border-color: var(--glass-border); height: 26px;">🔒 Lock Portal</button>
-        </div>
+        
+        <button onclick="lockPortal()" class="btn lock-btn" title="Lock Supervisor Portal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+            <path class="lock-shackle" d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+          <span>Lock</span>
+        </button>
       </div>
     </div>
 
@@ -1312,6 +1503,18 @@
         statusBadge.className = 'badge';
         statusBadge.classList.add(`badge-${phase.status}`);
 
+        // Update topbar phase indicator
+        const topbarPill = document.getElementById('topbar-phase-status');
+        if (topbarPill) {
+          topbarPill.style.display = 'flex';
+          document.getElementById('topbar-phase-name').innerText = phase.title;
+          const topbarBadge = document.getElementById('topbar-phase-badge');
+          if (topbarBadge) {
+            topbarBadge.innerText = phase.status;
+            topbarBadge.className = `badge badge-${phase.status}`;
+          }
+        }
+
         document.getElementById('active-phase-branch').innerText = phase.phase_branch || 'N/A (Draft)';
         
         const startArea = document.getElementById('start-phase-area');
@@ -1372,7 +1575,11 @@
         const response = await fetch(`/api/status/${activePhaseId}`, {
           headers: getHeaders()
         });
-        if (!response.ok) return;
+        if (!response.ok) {
+          setSystemStatus(false);
+          return;
+        }
+        setSystemStatus(true);
 
         const data = await response.json();
         
@@ -1380,6 +1587,13 @@
         statusBadge.innerText = data.phase.status;
         statusBadge.className = 'badge';
         statusBadge.classList.add(`badge-${data.phase.status}`);
+
+        // Update topbar phase badge
+        const topbarBadge = document.getElementById('topbar-phase-badge');
+        if (topbarBadge) {
+          topbarBadge.innerText = data.phase.status;
+          topbarBadge.className = `badge badge-${data.phase.status}`;
+        }
 
         document.getElementById('active-phase-branch').innerText = data.phase.phase_branch || 'N/A';
 
@@ -1662,6 +1876,12 @@
         document.getElementById('escalation-count-box').style.color = 'var(--neutral)';
         document.getElementById('escalation-reminder-text').style.display = 'none';
         
+        // Reset topbar active phase pill
+        const topbarPill = document.getElementById('topbar-phase-status');
+        if (topbarPill) topbarPill.style.display = 'none';
+        const phaseSelector = document.getElementById('phase-selector');
+        if (phaseSelector) phaseSelector.value = '';
+
         loadFormDraft();
         switchScreen('setup');
       }
@@ -1672,7 +1892,11 @@
         const response = await fetch('/api/phases', {
           headers: getHeaders()
         });
-        if (!response.ok) return;
+        if (!response.ok) {
+          setSystemStatus(false);
+          return;
+        }
+        setSystemStatus(true);
         const phases = await response.json();
         
         const selector = document.getElementById('phase-selector');
@@ -1723,13 +1947,16 @@
         if (response.ok) {
           document.getElementById('lock-screen').style.display = 'none';
           document.getElementById('dashboard-wrapper').style.display = 'block';
+          setSystemStatus(true);
           loadFormDraft();
           await loadPhasesList();
         } else {
+          setSystemStatus(false);
           showLockScreen();
         }
       } catch (error) {
         console.error('Failed to verify authentication on load:', error);
+        setSystemStatus(false);
         showLockScreen();
       }
     }
@@ -1777,7 +2004,21 @@
       portalSecret = '';
       localStorage.removeItem('jules_supervisor_secret');
       document.getElementById('portal-secret-key').value = '';
+      setSystemStatus(false);
       showLockScreen();
+    }
+
+    function setSystemStatus(isOnline) {
+      const indicator = document.getElementById('system-status-indicator');
+      if (indicator) {
+        if (isOnline) {
+          indicator.className = 'system-status-indicator online';
+          indicator.title = 'API Connection: Online';
+        } else {
+          indicator.className = 'system-status-indicator offline';
+          indicator.title = 'API Connection: Offline';
+        }
+      }
     }
 
     window.addEventListener('load', () => {

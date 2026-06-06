@@ -11,6 +11,7 @@ import { runSchema } from './src/db/connection.js';
 import sprintsRouter from './src/api/sprints.js';
 import statusRouter from './src/api/status.js';
 import webhookRouter from './src/api/webhook.js';
+import tasksRouter from './src/api/tasks.js';
 import { setupWebhook } from './src/services/telegram.js';
 
 const app = express();
@@ -28,6 +29,7 @@ app.get('/', (req, res) => {
 app.use('/api/sprints', sprintsRouter);
 app.use('/api/status', statusRouter);
 app.use('/api/webhook', webhookRouter);
+app.use('/api/tasks', tasksRouter);
 
 // Global error handler
 app.use((err, req, res, next) => {

@@ -478,9 +478,17 @@
         <h1>Jules Supervisor</h1>
         <p>Coordinate phases, execute Jules sessions, and verify PRs</p>
       </div>
-      <div class="security-panel">
-        <label for="portal-secret-input">Portal Key:</label>
-        <input type="password" id="portal-secret-input" placeholder="Secret Key" style="width: 140px; padding: 0.35rem 0.6rem; font-size: 0.8rem; border-radius: 6px;">
+      <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: center;" class="header-controls">
+        <div class="security-panel" style="width: auto; gap: 0.4rem;">
+          <label for="phase-selector">Load Phase:</label>
+          <select id="phase-selector" onchange="onPhaseSelect(this.value)" style="width: 160px; padding: 0.35rem 0.5rem; font-size: 0.8rem; border-radius: 6px; background: rgba(9, 13, 22, 0.6); color: var(--text-main); border: 1px solid var(--glass-border);">
+            <option value="">-- Load Phase --</option>
+          </select>
+        </div>
+        <div class="security-panel" style="width: auto;">
+          <label for="portal-secret-input">Portal Key:</label>
+          <input type="password" id="portal-secret-input" placeholder="Secret Key" style="width: 110px; padding: 0.35rem 0.6rem; font-size: 0.8rem; border-radius: 6px;">
+        </div>
       </div>
     </div>
 
@@ -1107,6 +1115,64 @@
         }
       }
     }
+
+    async function loadPhasesList() {
+      try {
+        const response = await fetch('/api/phases', {
+          headers: getHeaders()
+        });
+        if (!response.ok) return;
+        const phases = await response.json();
+        
+        const selector = document.getElementById('phase-selector');
+        selector.innerHTML = '<option value="">-- Load Phase --</option>';
+        
+        let activePhaseFound = null;
+        phases.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.innerText = `${p.title} (${p.status})`;
+          selector.appendChild(opt);
+          
+          if (p.status === 'active' && !activePhaseFound) {
+            activePhaseFound = p.id;
+          }
+        });
+        
+        // If an active phase is already running in background, auto-load it
+        if (activePhaseFound) {
+          selector.value = activePhaseFound;
+          onPhaseSelect(activePhaseFound);
+        }
+      } catch (err) {
+        console.error('Error loading phases list:', err);
+      }
+    }
+
+    function onPhaseSelect(phaseId) {
+      if (!phaseId) {
+        resetToDraft();
+        return;
+      }
+      
+      activePhaseId = parseInt(phaseId, 10);
+      
+      // Hide setup, show active controls
+      document.getElementById('phase-creation-card').style.display = 'none';
+      document.getElementById('phase-active-card').style.display = 'block';
+
+      loadActivePhase();
+      
+      if (window.innerWidth < 1024) {
+        showTab('status');
+      }
+    }
+
+    window.addEventListener('load', () => {
+      loadFormDraft();
+      checkViewport();
+      loadPhasesList();
+    });
   </script>
 </body>
 </html>

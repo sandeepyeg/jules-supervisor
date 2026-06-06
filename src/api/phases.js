@@ -9,6 +9,20 @@ import { portalAuth } from './auth.js';
 const router = express.Router();
 
 /**
+ * GET /api/phases
+ * Returns a list of all phases (recent first) to check existing phases.
+ */
+router.get('/', async (req, res) => {
+  try {
+    const [rows] = await pool.query('SELECT * FROM phases ORDER BY created_at DESC');
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching phases:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * POST /api/phases
  * Creates a new phase with a description and its associated tasks, mapping dependencies.
  */

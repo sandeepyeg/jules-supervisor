@@ -1,11 +1,9 @@
+import './src/core/env.js';
 import express from 'express';
 import 'express-async-errors';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import path from 'path';
-import dotenv from 'dotenv';
-
-dotenv.config({ override: true });
 
 import { runSchema } from './src/db/connection.js';
 import sprintsRouter from './src/api/sprints.js';

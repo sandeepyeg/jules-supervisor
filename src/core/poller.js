@@ -58,8 +58,21 @@ export function startPoller(phaseId) {
         console.error('Error sending Telegram reminders:', error);
       }
       
-      // 4. Check if phase is complete
-      const isComplete = await taskManager.checkAllMerged(phaseId);
+      // 4. Check if any task has failed
+      const [tasks] = await queries.pool.query('SELECT status, title FROM tasks WHERE phase_id = ?', [phaseId]);
+      const failedTask = tasks.find(t => t.status === 'failed');
+      if (failedTask) {
+        console.log(`Task "${failedTask.title}" failed. Marking phase ${phaseId} as failed.`);
+        await queries.updatePhaseStatus(phaseId, 'failed', { completed_at: new Date() });
+        await telegram.sendNotification(`Phase failed: "${phase.title}" was stopped because task "${failedTask.title}" failed.`);
+        
+        clearInterval(interval);
+        activePollers.delete(phaseId);
+        return;
+      }
+      
+      // 5. Check if phase is complete
+      const isComplete = tasks.length > 0 && tasks.every(t => t.status === 'merged' || t.status === 'skipped');
       if (isComplete) {
         console.log(`All tasks in phase ${phaseId} merged/skipped! Marking phase complete.`);
         await queries.updatePhaseStatus(phaseId, 'complete', { completed_at: new Date() });

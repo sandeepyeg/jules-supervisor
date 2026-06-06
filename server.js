@@ -5,7 +5,8 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import path from 'path';
 
-import { runSchema } from './src/db/connection.js';
+import { pool, runSchema } from './src/db/connection.js';
+import { startPoller } from './src/core/poller.js';
 import phasesRouter from './src/api/phases.js';
 import statusRouter from './src/api/status.js';
 import webhookRouter from './src/api/webhook.js';
@@ -37,6 +38,17 @@ app.use((err, req, res, next) => {
 
 // Run DB table initialization
 await runSchema();
+
+// Auto-resume active pollers on start
+try {
+  const [activePhases] = await pool.query("SELECT id FROM phases WHERE status = 'active'");
+  for (const phase of activePhases) {
+    startPoller(phase.id);
+    console.log(`Resumed background supervisor poller for phase #${phase.id}`);
+  }
+} catch (error) {
+  console.error('Failed to resume active pollers on startup:', error);
+}
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, async () => {

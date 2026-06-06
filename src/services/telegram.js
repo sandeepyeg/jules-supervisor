@@ -1,5 +1,6 @@
 import TelegramBot from 'node-telegram-bot-api';
 import EventEmitter from 'events';
+import { getPortalSecret } from '../api/auth.js';
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -78,7 +79,7 @@ export async function sendNotification(text) {
  */
 export async function setupWebhook(appUrl) {
   if (bot.setWebHook) {
-    const webhookSecret = process.env.PORTAL_SECRET || 'default_webhook_secret';
+    const webhookSecret = getPortalSecret();
     const hookUrl = `${appUrl}/api/webhook/telegram/${webhookSecret}`;
     console.log(`Setting Telegram Webhook to: ${hookUrl}`);
     await bot.setWebHook(hookUrl);

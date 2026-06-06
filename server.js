@@ -12,10 +12,14 @@ import statusRouter from './src/api/status.js';
 import webhookRouter from './src/api/webhook.js';
 import tasksRouter from './src/api/tasks.js';
 import { setupWebhook } from './src/services/telegram.js';
+import { securityBlocker } from './src/api/securityBlocker.js';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// Strict Express-level request blocker to prevent sensitive/config file exposure and directory traversal
+app.use(securityBlocker);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

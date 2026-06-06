@@ -1,5 +1,6 @@
 import express from 'express';
 import * as questionHandler from '../core/questionHandler.js';
+import { getPortalSecret } from './auth.js';
 
 const router = express.Router();
 
@@ -8,7 +9,7 @@ const router = express.Router();
  * Handles incoming webhooks from the Telegram Bot API with mandatory token validation.
  */
 router.post('/telegram/:secret', async (req, res) => {
-  const webhookSecret = process.env.PORTAL_SECRET || 'default_webhook_secret';
+  const webhookSecret = getPortalSecret();
   
   if (req.params.secret !== webhookSecret) {
     console.warn('Blocked Telegram webhook call: Invalid secret token in URL path.');

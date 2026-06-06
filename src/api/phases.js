@@ -12,7 +12,7 @@ const router = express.Router();
  * GET /api/phases
  * Returns a list of all phases (recent first) to check existing phases.
  */
-router.get('/', async (req, res) => {
+router.get('/', portalAuth, async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM phases ORDER BY created_at DESC');
     res.json(rows);
@@ -150,7 +150,7 @@ router.post('/:id/start', portalAuth, async (req, res) => {
  * GET /api/phases/:id
  * Retrieves the phase, its details, and its tasks ordered by sort_order.
  */
-router.get('/:id', async (req, res) => {
+router.get('/:id', portalAuth, async (req, res) => {
   const phaseId = parseInt(req.params.id, 10);
   try {
     const phase = await queries.getPhase(phaseId);
@@ -177,7 +177,7 @@ router.get('/:id', async (req, res) => {
  * GET /api/phases/:id/qalog
  * Returns all QA transaction logs associated with tasks inside this phase.
  */
-router.get('/:id/qalog', async (req, res) => {
+router.get('/:id/qalog', portalAuth, async (req, res) => {
   const phaseId = parseInt(req.params.id, 10);
   try {
     const [logs] = await pool.query(

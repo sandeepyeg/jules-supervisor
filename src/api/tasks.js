@@ -8,7 +8,7 @@ const router = express.Router();
  * GET /api/tasks/:id
  * Retrieves detail for a specific task.
  */
-router.get('/:id', async (req, res) => {
+router.get('/:id', portalAuth, async (req, res) => {
   const taskId = parseInt(req.params.id, 10);
   try {
     const task = await queries.getTask(taskId);

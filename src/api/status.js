@@ -1,6 +1,7 @@
 import express from 'express';
 import { pool } from '../db/connection.js';
 import * as queries from '../db/queries.js';
+import { portalAuth } from './auth.js';
 
 const router = express.Router();
 
@@ -9,7 +10,7 @@ const router = express.Router();
  * Returns the status summary of the phase, its tasks, and unresolved Telegram pending questions.
  * Polled by the portal frontend.
  */
-router.get('/:phaseId', async (req, res) => {
+router.get('/:phaseId', portalAuth, async (req, res) => {
   const phaseId = parseInt(req.params.phaseId, 10);
   
   try {

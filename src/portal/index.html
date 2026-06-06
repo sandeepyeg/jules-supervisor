@@ -551,7 +551,13 @@
           <div class="editor-section">
             <h3 style="margin-bottom: 0.5rem; font-size: 1rem; display: flex; justify-content: space-between; align-items: center;">
               Phase Tasks
-              <button type="button" class="btn btn-secondary" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;" onclick="addTaskItem()">+ Add Task</button>
+              <div style="display: flex; gap: 0.75rem; align-items: center;">
+                <label style="font-size: 0.75rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.25rem; cursor: pointer; font-weight: normal; user-select: none;">
+                  <input type="checkbox" id="auto-chain-checkbox" checked onchange="toggleAutoChain(this.checked)" style="width: auto; height: auto; margin-right: 0.2rem;">
+                  Auto-Chain Sequence
+                </label>
+                <button type="button" class="btn btn-secondary" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;" onclick="addTaskItem()">+ Add Task</button>
+              </div>
             </h3>
             <div id="tasks-container">
               <!-- Dynamically populated. Defaults to 1 task -->
@@ -722,7 +728,8 @@
         title: document.getElementById('phase-title').value,
         description: document.getElementById('phase-description').value,
         mainBranch: document.getElementById('main-branch').value,
-        tasks: tasksList
+        tasks: tasksList,
+        autoChain: autoChain
       };
       localStorage.setItem('jules_phase_draft', JSON.stringify(draft));
     };
@@ -735,6 +742,9 @@
           document.getElementById('phase-title').value = draft.title || '';
           document.getElementById('phase-description').value = draft.description || '';
           document.getElementById('main-branch').value = draft.mainBranch || 'main';
+          
+          autoChain = draft.autoChain !== undefined ? draft.autoChain : true;
+          document.getElementById('auto-chain-checkbox').checked = autoChain;
           
           tasksList = draft.tasks || [];
           
@@ -753,14 +763,37 @@
     };
 
     // --- TASK EDITOR LOGIC ---
+    function toggleAutoChain(val) {
+      autoChain = val;
+      if (autoChain) {
+        syncTasksFromDOM();
+        recalculateSequencedDependencies();
+      }
+      renderTasks();
+      saveFormDraft();
+    }
+
+    function recalculateSequencedDependencies() {
+      tasksList.forEach((task, idx) => {
+        if (idx === 0) {
+          task.depends_on = [];
+        } else {
+          task.depends_on = [tasksList[idx - 1].id];
+        }
+      });
+    }
+
     function addTaskItem() {
+      const priorTask = tasksList[tasksList.length - 1];
+      const dependsOn = (autoChain && priorTask) ? [priorTask.id] : [];
+
       tasksList.push({
         id: 't_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
         title: '',
         description: '',
         mode: 'ai_assisted',
         jules_notes: '',
-        depends_on: []
+        depends_on: dependsOn
       });
       renderTasks();
       saveFormDraft();
@@ -771,7 +804,11 @@
         alert('You must have at least one task in the phase.');
         return;
       }
+      syncTasksFromDOM();
       tasksList.splice(index, 1);
+      if (autoChain) {
+        recalculateSequencedDependencies();
+      }
       renderTasks();
       saveFormDraft();
     }
@@ -782,6 +819,9 @@
       const temp = tasksList[index];
       tasksList[index] = tasksList[index - 1];
       tasksList[index - 1] = temp;
+      if (autoChain) {
+        recalculateSequencedDependencies();
+      }
       renderTasks();
       saveFormDraft();
     }
@@ -792,6 +832,9 @@
       const temp = tasksList[index];
       tasksList[index] = tasksList[index + 1];
       tasksList[index + 1] = temp;
+      if (autoChain) {
+        recalculateSequencedDependencies();
+      }
       renderTasks();
       saveFormDraft();
     }
@@ -810,6 +853,17 @@
     function onTaskChange(index, field, value) {
       tasksList[index][field] = value;
       saveFormDraft();
+    }
+
+    // When auto-chain is off, update the task dependencies checklist title names dynamically
+    function onTaskTitleInput(index, value) {
+      tasksList[index].title = value;
+      saveFormDraft();
+      
+      if (!autoChain) {
+        // Redraw lists to show correct names in dependency checklists
+        updateDependenciesLists();
+      }
     }
 
     function onTaskCheckboxChange(taskIdx, field, value, checked) {
@@ -836,19 +890,36 @@
         const item = document.createElement('div');
         item.className = 'editor-item';
         
-        // Build dependencies checklist
-        let dependencyCheckboxes = '';
-        tasksList.forEach((otherTask, oIdx) => {
-          if (oIdx === idx) return;
-          const otherTitle = otherTask.title || `Task #${oIdx + 1}`;
-          const checked = task.depends_on.includes(otherTask.id) ? 'checked' : '';
-          dependencyCheckboxes += `
-            <label class="checkbox-item">
-              <input type="checkbox" value="${otherTask.id}" ${checked} onchange="onTaskCheckboxChange(${idx}, 'depends_on', this.value, this.checked)">
-              ${otherTitle}
-            </label>
+        let dependencyUI = '';
+        if (autoChain) {
+          if (idx === 0) {
+            dependencyUI = `<span style="font-size: 0.75rem; color: var(--text-muted); font-style: italic;">Starts immediately (First Task)</span>`;
+          } else {
+            const priorTitle = tasksList[idx - 1].title || `Task #${idx}`;
+            dependencyUI = `<span style="font-size: 0.75rem; color: #a5b4fc; font-weight: 500; display: flex; align-items: center; gap: 0.2rem;">
+              🔗 Sequenced: Waits for "${priorTitle}"
+            </span>`;
+          }
+        } else {
+          // Build dependencies checklist
+          let dependencyCheckboxes = '';
+          tasksList.forEach((otherTask, oIdx) => {
+            if (oIdx === idx) return;
+            const otherTitle = otherTask.title || `Task #${oIdx + 1}`;
+            const checked = task.depends_on.includes(otherTask.id) ? 'checked' : '';
+            dependencyCheckboxes += `
+              <label class="checkbox-item">
+                <input type="checkbox" value="${otherTask.id}" ${checked} onchange="onTaskCheckboxChange(${idx}, 'depends_on', this.value, this.checked)">
+                ${otherTitle}
+              </label>
+            `;
+          });
+          dependencyUI = `
+            <div class="checkbox-grid">
+              ${dependencyCheckboxes || '<span style="font-size: 0.75rem; color: var(--text-muted);">No other tasks in phase list</span>'}
+            </div>
           `;
-        });
+        }
 
         item.innerHTML = `
           <div class="item-header">
@@ -862,7 +933,7 @@
           
           <div class="form-group">
             <label>Task Title</label>
-            <input type="text" id="t-title-${task.id}" placeholder="e.g. Implement db connection wrapper" value="${task.title}" oninput="onTaskChange(${idx}, 'title', this.value); updateDependenciesLists();" required>
+            <input type="text" id="t-title-${task.id}" placeholder="e.g. Implement db connection wrapper" value="${task.title}" oninput="onTaskTitleInput(${idx}, this.value);" required>
           </div>
 
           <div class="form-group">
@@ -885,9 +956,7 @@
 
           <div class="form-group" style="margin-bottom: 0;">
             <label>Depends on prior tasks</label>
-            <div class="checkbox-grid">
-              ${dependencyCheckboxes || '<span style="font-size: 0.75rem; color: var(--text-muted);">No other tasks in phase list</span>'}
-            </div>
+            ${dependencyUI}
           </div>
         `;
         container.appendChild(item);

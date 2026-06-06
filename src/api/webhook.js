@@ -13,6 +13,14 @@ router.post('/telegram', async (req, res) => {
     
     if (update && update.message) {
       const message = update.message;
+      
+      // Filter out messages from unauthorized chats for security
+      const authorizedChatId = process.env.TELEGRAM_CHAT_ID;
+      if (authorizedChatId && String(message.chat.id) !== String(authorizedChatId)) {
+        console.warn(`Blocked incoming Telegram webhook from unauthorized chat ID: ${message.chat.id}`);
+        return res.status(200).send('OK');
+      }
+
       // Check if message is a reply to another message
       if (message.reply_to_message && message.text) {
         await questionHandler.handleTelegramReply(

@@ -34,6 +34,11 @@ if (!token || token.startsWith('your_')) {
   bot = new TelegramBot(token, options);
 
   bot.on('message', (msg) => {
+    // Only accept messages from your specific chat ID for security
+    if (chatId && String(msg.chat.id) !== String(chatId)) {
+      console.warn(`Blocked incoming Telegram message from unauthorized chat ID: ${msg.chat.id}`);
+      return;
+    }
     if (msg.reply_to_message) {
       telegramEmitter.emit('reply', {
         replyToMessageId: msg.reply_to_message.message_id,

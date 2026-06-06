@@ -42,15 +42,15 @@ export async function askGeminiFlash(prompt) {
 }
 
 /**
- * Calls DeepSeek via Kilo Gateway (OpenAI-compatible endpoint).
+ * Calls DeepSeek via OpenRouter (OpenAI-compatible endpoint).
  */
 export async function askDeepSeek(prompt, returnJson = false) {
-  const apiKey = process.env.KILO_API_KEY;
-  const baseUrl = process.env.KILO_BASE_URL || 'https://api.kilo.ai/v1';
-  const model = process.env.KILO_MODEL || 'deepseek-v4-pro';
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  const baseUrl = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
+  const model = process.env.OPENROUTER_MODEL || 'deepseek/deepseek-chat';
   
   if (!apiKey) {
-    throw new Error('KILO_API_KEY is not defined in environment variables');
+    throw new Error('OPENROUTER_API_KEY is not defined in environment variables');
   }
 
   const url = `${baseUrl}/chat/completions`;
@@ -69,21 +69,23 @@ export async function askDeepSeek(prompt, returnJson = false) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`
+      'Authorization': `Bearer ${apiKey}`,
+      'HTTP-Referer': 'https://github.com/sandeepyeg/jules-supervisor',
+      'X-Title': 'Jules Supervisor'
     },
     body: JSON.stringify(body)
   });
 
   if (!response.ok) {
     const errText = await response.text();
-    throw new Error(`DeepSeek API request failed: ${response.statusText} - ${errText}`);
+    throw new Error(`OpenRouter API request failed: ${response.statusText} - ${errText}`);
   }
 
   const data = await response.json();
   try {
     return data.choices[0].message.content;
   } catch (error) {
-    throw new Error(`Unexpected DeepSeek response format: ${JSON.stringify(data)}`);
+    throw new Error(`Unexpected OpenRouter response format: ${JSON.stringify(data)}`);
   }
 }
 

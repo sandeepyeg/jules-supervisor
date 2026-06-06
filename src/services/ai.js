@@ -1,4 +1,5 @@
-import fetch from 'node-fetch';
+import nodeFetch from 'node-fetch';
+const fetch = (...args) => (globalThis.__mockFetch || nodeFetch)(...args);
 
 /**
  * Calls Gemini Flash to generate content.

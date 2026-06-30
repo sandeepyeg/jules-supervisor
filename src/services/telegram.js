@@ -63,15 +63,8 @@ if (!token || token.startsWith('your_')) {
     // Small startup delay so the previous instance finishes releasing the
     // Telegram polling connection before we open a new one.
     setTimeout(() => {
-      bot.deleteWebhook({ drop_pending_updates: true })
-        .then(() => {
-          bot.startPolling();
-          console.log('Telegram Bot configured for Long-Polling mode.');
-        })
-        .catch(() => {
-          bot.startPolling();
-          console.log('Telegram Bot configured for Long-Polling mode.');
-        });
+      bot.startPolling();
+      console.log('Telegram Bot configured for Long-Polling mode.');
     }, 1500);
   }
 

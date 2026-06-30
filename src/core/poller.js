@@ -62,7 +62,7 @@ export function startPoller(phaseId) {
       }
       
       // 4. Check if any task has failed
-      const [tasks] = await queries.pool.query('SELECT status, title FROM tasks WHERE phase_id = ?', [phaseId]);
+      const tasks = await queries.getTasksForPhase(phaseId);
       const failedTask = tasks.find(t => t.status === 'failed');
       if (failedTask) {
         console.log(`Task "${failedTask.title}" failed. Marking phase ${phaseId} as failed.`);

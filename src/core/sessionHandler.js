@@ -98,8 +98,17 @@ export async function handleSession(task) {
         const phase = await queries.getPhase(task.phase_id);
         const phaseBranch = phase.phase_branch;
         
-        const prompt = `${task.description}\n\nTarget branch: ${phaseBranch}\n\nNote: The previous attempt failed. Please try a different approach.`;
-        
+        const prompt = `${task.description}
+
+Target branch: ${phaseBranch}
+Open your pull request against ${phaseBranch}.
+Do not open your PR against main.
+Do not merge into main.
+Keep the change limited to this task.
+Add or update tests when behavior changes.
+
+Note: The previous attempt failed. Please try a different approach.`;
+
         // Launch a new session
         const { sessionId } = await jules.createSession(prompt, phaseBranch, task.jules_notes);
         

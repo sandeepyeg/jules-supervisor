@@ -44,3 +44,16 @@ This guide outlines the commands and guidelines for AI coding agents and develop
 - The bot supports both Webhooks and Long-Polling.
 - If `TELEGRAM_WEBHOOK_URL` is omitted from `.env`, the wrapper defaults to standard polling mode.
 - If `TELEGRAM_BOT_TOKEN` is missing, the service falls back to a **Mock Mode** to prevent the application from crashing on startup.
+
+### 🛡️ Safety & Branch Isolation Rules
+- **Phase Branch Isolation**: The supervisor operates inside a dedicated `feature/phase-XX` branch created from `main`. Every Jules task must target this branch.
+- **Never Merge to Main**: The supervisor must **NEVER** merge code automatically into `main`. A human developer must manually create the final pull request from `feature/phase-XX` into `main` and execute the merge.
+- **Wrong Target Blocking**: Any PR targeting `main` must be immediately blocked, disapproved, and the agent corrected to retarget to the phase branch.
+- **High-Risk Checks**: Any changes affecting authentication, security, schema/migrations, configurations/secrets, or government portal/auto-submit logic are classified as High Risk, blocking auto-merge and alerting the developer.
+
+### 🤖 Model Recommendations & Routing
+- **Primary Supervisor**: Use `gemini-3.1-flash-lite` (Provider: `google`) for normal orchestration and answering.
+- **Backup Supervisor**: Use `deepseek/deepseek-chat` via OpenRouter (Provider: `openrouter`) when the primary model fails or returns low confidence.
+- **Strong Reviewer**: Use `gemini-3.5-flash` (Provider: `google`) to review high-risk changes.
+- **Privacy Warning**: Never send real client immigration data, passport information, or documents to free/cheap models.
+

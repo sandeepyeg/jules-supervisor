@@ -93,6 +93,30 @@ export async function sendNotification(text) {
 }
 
 /**
+ * Sends an alert when a Jules task PR is blocked.
+ */
+export async function sendPRBlockedNotification({ taskTitle, prUrl, riskLevel, blockingReason, julesFix }) {
+  const formatted = `🚨 PR Blocked by Supervisor\n\nTask: ${taskTitle}\nPR URL: ${prUrl}\nRisk Level: ${riskLevel}\nReason: ${blockingReason}\nJules Instruction: ${julesFix}`;
+  return bot.sendMessage(chatId, formatted);
+}
+
+/**
+ * Sends an alert when a PR is approved but auto-merge is disabled (or blocked by risk/checks).
+ */
+export async function sendPRReadyNotification({ taskTitle, prUrl }) {
+  const formatted = `✅ PR Ready for Review\n\nTask: ${taskTitle}\nPR URL: ${prUrl}\n\nTask PR appears ready for human review/merge into phase branch.`;
+  return bot.sendMessage(chatId, formatted);
+}
+
+/**
+ * Sends an alert when all phase tasks are complete.
+ */
+export async function sendPhaseCompleteNotification(phaseBranch, phaseTitle) {
+  const formatted = `🏁 Phase Complete\n\nPhase: ${phaseTitle}\n\nPhase complete. Review branch ${phaseBranch}. Human should manually create/review/merge final PR into main.`;
+  return bot.sendMessage(chatId, formatted);
+}
+
+/**
  * Registers the webhook with the Telegram API.
  */
 export async function setupWebhook(appUrl) {

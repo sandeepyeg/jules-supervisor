@@ -2,9 +2,12 @@ import * as queries from '../db/queries.js';
 import * as sessionHandler from './sessionHandler.js';
 import * as taskManager from './taskManager.js';
 import * as telegram from '../services/telegram.js';
-
-const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS || '30000', 10);
-const TELEGRAM_REMINDER_MS = parseInt(process.env.TELEGRAM_REMINDER_MS || '300000', 10);
+import * as github from '../services/github.js';
+import {
+  POLL_INTERVAL_MS,
+  TELEGRAM_REMINDER_MS,
+  CREATE_FINAL_DRAFT_PR
+} from './config.js';
 
 // Keep track of active interval references by phase ID so we can stop them if needed
 const activePollers = new Map();
@@ -76,7 +79,23 @@ export function startPoller(phaseId) {
       if (isComplete) {
         console.log(`All tasks in phase ${phaseId} merged/skipped! Marking phase complete.`);
         await queries.updatePhaseStatus(phaseId, 'complete', { completed_at: new Date() });
-        await telegram.sendNotification(`Phase complete: "${phase.title}". Ready for your testing.`);
+        
+        // Notify Telegram with the safe phase-branch text
+        await telegram.sendPhaseCompleteNotification(phase.phase_branch, phase.title);
+        
+        // If configured, create a draft PR from phase_branch to main (does not merge)
+        if (CREATE_FINAL_DRAFT_PR) {
+          try {
+            console.log(`Creating final draft PR for branch ${phase.phase_branch} into ${phase.main_branch}...`);
+            await github.createDraftPR(
+              phase.phase_branch,
+              phase.main_branch,
+              `Draft: Merge phase branch ${phase.phase_branch} into ${phase.main_branch}`
+            );
+          } catch (prErr) {
+            console.error('Failed to create final draft PR:', prErr);
+          }
+        }
         
         clearInterval(interval);
         activePollers.delete(phaseId);

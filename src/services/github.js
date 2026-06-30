@@ -146,3 +146,173 @@ export function getPRNumber(prUrl) {
   const match = prUrl.match(/\/pull\/(\d+)/);
   return match ? parseInt(match[1], 10) : null;
 }
+
+/**
+ * Retrieves structured PR metadata.
+ */
+export async function getPR(prNumber) {
+  const repoUrl = getRepoUrl();
+  const url = `${repoUrl}/pulls/${prNumber}`;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: getHeaders()
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to get PR #${prNumber} metadata: ${response.statusText} - ${errText}`);
+  }
+
+  const data = await response.json();
+  return {
+    number: data.number,
+    title: data.title,
+    html_url: data.html_url,
+    base: {
+      ref: data.base?.ref
+    },
+    head: {
+      ref: data.head?.ref,
+      sha: data.head?.sha
+    },
+    state: data.state,
+    mergeable: data.mergeable,
+    changed_files: data.changed_files,
+    additions: data.additions,
+    deletions: data.deletions
+  };
+}
+
+/**
+ * Fetches all changed files in a PR, paginated if needed.
+ */
+export async function getPRFiles(prNumber) {
+  const repoUrl = getRepoUrl();
+  let files = [];
+  let page = 1;
+  while (true) {
+    const url = `${repoUrl}/pulls/${prNumber}/files?per_page=100&page=${page}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: getHeaders()
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Failed to get files for PR #${prNumber}: ${response.statusText} - ${errText}`);
+    }
+
+    const data = await response.json();
+    if (!data || data.length === 0) {
+      break;
+    }
+    files = files.concat(data);
+    if (data.length < 100) {
+      break;
+    }
+    page++;
+  }
+  return files;
+}
+
+/**
+ * Best-effort fetch of check runs and commit status.
+ * Returns "passing", "failing", or "unknown".
+ */
+export async function getPRChecks(prNumber) {
+  try {
+    const pr = await getPR(prNumber);
+    const sha = pr.head?.sha;
+    if (!sha) return 'unknown';
+
+    const repoUrl = getRepoUrl();
+    
+    // 1. Combined status
+    const statusUrl = `${repoUrl}/commits/${sha}/status`;
+    const statusResponse = await fetch(statusUrl, {
+      method: 'GET',
+      headers: getHeaders()
+    });
+    
+    let statusState = 'unknown';
+    if (statusResponse.ok) {
+      const statusData = await statusResponse.json();
+      statusState = statusData.state; // failure, pending, success, or error
+    }
+
+    // 2. Check runs
+    const checkRunsUrl = `${repoUrl}/commits/${sha}/check-runs`;
+    const checksResponse = await fetch(checkRunsUrl, {
+      method: 'GET',
+      headers: getHeaders()
+    });
+
+    let checkRunsState = 'unknown';
+    if (checksResponse.ok) {
+      const checksData = await checksResponse.json();
+      const runs = checksData.check_runs || [];
+      if (runs.length > 0) {
+        const hasFailed = runs.some(run => run.status === 'completed' && ['failure', 'timed_out', 'action_required'].includes(run.conclusion));
+        const hasPending = runs.some(run => run.status !== 'completed' || run.conclusion === null);
+        if (hasFailed) {
+          checkRunsState = 'failure';
+        } else if (hasPending) {
+          checkRunsState = 'pending';
+        } else {
+          checkRunsState = 'success';
+        }
+      } else {
+        checkRunsState = 'success';
+      }
+    }
+
+    // Combine states
+    if (statusState === 'failure' || statusState === 'error' || checkRunsState === 'failure') {
+      return 'failing';
+    }
+    if (statusState === 'pending' || checkRunsState === 'pending') {
+      return 'failing';
+    }
+    if (statusState === 'success' && checkRunsState === 'success') {
+      return 'passing';
+    }
+    if ((statusState === 'success' || statusState === 'unknown') && (checkRunsState === 'success' || checkRunsState === 'unknown')) {
+      if (statusState === 'unknown' && checkRunsState === 'unknown') {
+        return 'unknown';
+      }
+      return 'passing';
+    }
+    return 'unknown';
+  } catch (error) {
+    console.error(`Error getting PR checks for PR #${prNumber}:`, error);
+    return 'unknown';
+  }
+}
+
+/**
+ * Creates a draft PR from phase branch to main.
+ */
+export async function createDraftPR(phaseBranch, mainBranch, title) {
+  const repoUrl = getRepoUrl();
+  const url = `${repoUrl}/pulls`;
+  const body = {
+    title: title,
+    head: phaseBranch,
+    base: mainBranch,
+    draft: true,
+    body: `Automated draft PR created by Jules Supervisor to merge ${phaseBranch} into ${mainBranch} after phase completion. Please review manually.`
+  };
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to create draft PR from ${phaseBranch} to ${mainBranch}: ${response.statusText} - ${errText}`);
+  }
+
+  return response.json();
+}

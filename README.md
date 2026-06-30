@@ -106,3 +106,42 @@ graph TD
     F -->|AI PR Review Approved| G[Squash Merged]
     F -->|AI PR Review Rejected| B
 ```
+
+---
+
+## 🔒 Safety, Model Routing & Isolation Policy
+
+Jules Supervisor operates under strict security constraints to ensure code integrity and prevent unauthorized modifications to critical branches.
+
+### 1. Isolated Branch Workflow
+The supervisor is designed to manage development within isolated phase branches rather than the main codebase:
+1. **Branch Creation**: The supervisor automatically creates a dedicated phase branch from `main` (e.g. `feature/phase-12`).
+2. **Jules Targeting**: Jules is explicitly instructed to target and open PRs against this phase branch only.
+3. **PR Validation**: Any pull request targeting the `main` branch directly is immediately blocked, disapproved, and Jules is sent a correction request to retarget the PR.
+4. **Never Merge to Main**: The supervisor will **NEVER** merge anything into `main`. Once all tasks are complete, the phase is marked finished, and a human developer must manually create and review the final PR from `feature/phase-XX` into `main`.
+
+### 2. Risk Classification
+PR diffs are scanned for sensitive or high-risk areas including:
+- Auth and security modules (`auth`, `login`, `security`)
+- Database schema changes and migrations (`schema`, `migration`, `.sql`)
+- Environment configurations and keys (`.env`, `secrets`, `config`)
+- API wrappers and PR merge logic
+- Form generation and auto-submitting portal logic (e.g., government portal automation)
+
+Any PR affecting these high-risk areas triggers an alert to Telegram, blocks automated merging, and requires human intervention.
+
+### 3. Model Routing Configuration
+We support dynamic routing of AI requests across multiple models to optimize for reliability, cost, and review strength:
+
+| Use Case | Provider | Recommended Model | Environment Variable |
+|---|---|---|---|
+| **Primary Supervisor** | Google | `gemini-3.1-flash-lite` | `PRIMARY_SUPERVISOR_MODEL` |
+| **Backup Supervisor** | OpenRouter | `deepseek/deepseek-chat` | `BACKUP_SUPERVISOR_MODEL` |
+| **Strong Reviewer (High-Risk)** | Google | `gemini-3.5-flash` | `STRONG_REVIEW_MODEL` |
+
+### ⚠️ Critical Warnings
+- > [!WARNING]
+  > **No Auto-Merges to Main**: The supervisor is strictly prohibited from automatically merging any code into the `main` branch. All final merges into `main` must be reviewed and executed manually by a human developer.
+- > [!CAUTION]
+  > **Sensitive Data Protection**: Do NOT send real client immigration data, passport details, documents, or repository secrets/API keys to free/cheap models.
+

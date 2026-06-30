@@ -142,11 +142,50 @@ test('End-to-End Real World Supervisor Workflow Simulator', async (t) => {
           json: async () => ({})
         };
       }
+      // Get PR Files
+      if (checkUrl.includes('/pulls/') && checkUrl.endsWith('/files')) {
+        return {
+          ok: true,
+          json: async () => [{ filename: 'server.js' }]
+        };
+      }
       // Get PR diff
       if (checkUrl.includes('/pulls/') && options.headers?.Accept?.includes('diff')) {
         return {
           ok: true,
           text: async () => 'diff --git a/server.js b/server.js\n+console.log("system test passes");'
+        };
+      }
+      // Get PR details metadata
+      if (checkUrl.includes('/pulls/105') && options.method === 'GET') {
+        return {
+          ok: true,
+          json: async () => ({
+            number: 105,
+            title: 'E2E Task 1 - Sequential Start',
+            html_url: 'https://github.com/sandeepyeg/project-jupitor/pull/105',
+            base: { ref: 'feature/phase-1' },
+            head: { ref: 'feature/task-1', sha: 'sha1234567890abcdef' },
+            state: 'open',
+            mergeable: true,
+            changed_files: 1,
+            additions: 1,
+            deletions: 0
+          })
+        };
+      }
+      // Get PR Checks combined status
+      if (checkUrl.includes('/commits/sha1234567890abcdef/status')) {
+        return {
+          ok: true,
+          json: async () => ({ state: 'success' })
+        };
+      }
+      // Get PR Check runs
+      if (checkUrl.includes('/commits/sha1234567890abcdef/check-runs')) {
+        return {
+          ok: true,
+          json: async () => ({ check_runs: [] })
         };
       }
       // Approve PR

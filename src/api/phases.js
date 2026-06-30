@@ -195,4 +195,68 @@ router.get('/:id/qalog', portalAuth, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/phases/github/branches
+ * Returns a list of branch names in the repository.
+ */
+router.get('/github/branches', portalAuth, async (req, res) => {
+  try {
+    const branches = await github.listBranches();
+    const names = branches.map(b => b.name);
+    res.json(names);
+  } catch (error) {
+    console.error('Error listing branches:', error);
+    // If GitHub token is mock/placeholder, fallback to standard list
+    res.json(['main', 'master', 'dev', 'feature/phase-1']);
+  }
+});
+
+/**
+ * POST /api/phases/:id/tasks
+ * Appends a new task to an active or draft phase.
+ */
+router.post('/:id/tasks', portalAuth, async (req, res) => {
+  const phaseId = parseInt(req.params.id, 10);
+  const { title, description, jules_notes, mode, depends_on } = req.body;
+  
+  if (!title) {
+    return res.status(400).json({ error: 'Title is required' });
+  }
+  
+  try {
+    const phase = await queries.getPhase(phaseId);
+    if (!phase) {
+      return res.status(404).json({ error: 'Phase not found' });
+    }
+    
+    // Get max sort_order to append to the end
+    const [maxRes] = await pool.query('SELECT MAX(sort_order) as maxSort FROM tasks WHERE phase_id = ?', [phaseId]);
+    const nextSort = (maxRes[0]?.maxSort !== null ? maxRes[0].maxSort : -1) + 1;
+    
+    const [taskRes] = await pool.query(
+      `INSERT INTO tasks (phase_id, title, description, jules_notes, mode, status, sort_order, depends_on) 
+       VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)`,
+      [
+        phaseId,
+        title,
+        description || '',
+        jules_notes || null,
+        mode || 'ai_assisted',
+        nextSort,
+        JSON.stringify(depends_on || [])
+      ]
+    );
+    
+    // If phase is active, start any tasks that might be ready
+    if (phase.status === 'active') {
+      await taskManager.startReadyTasks(phaseId, phase.phase_branch);
+    }
+    
+    res.status(201).json({ taskId: taskRes.insertId });
+  } catch (error) {
+    console.error('Error appending task:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

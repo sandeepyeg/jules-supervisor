@@ -341,3 +341,22 @@ export async function createDraftPR(phaseBranch, mainBranch, title) {
 
   return response.json();
 }
+
+/**
+ * Fetches all heads/branches in the repository.
+ */
+export async function listBranches() {
+  const repoUrl = getRepoUrl();
+  const url = `${repoUrl}/branches`;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: getHeaders()
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to list branches: ${response.statusText} - ${errText}`);
+  }
+
+  return response.json();
+}

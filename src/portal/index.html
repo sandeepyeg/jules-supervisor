@@ -898,6 +898,38 @@
       color: #cbd5e1;
       border: 1px solid rgba(148, 163, 184, 0.25);
     }
+
+    /* Modal styles */
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(4, 6, 10, 0.7);
+      backdrop-filter: blur(8px);
+      z-index: 1000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 1.5rem;
+    }
+    .modal-card {
+      width: 100%;
+      max-width: 500px;
+      margin: auto;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    }
+    
+    /* Interactive task details */
+    .task-status-card {
+      cursor: pointer;
+      transition: background 0.2s ease, border-color 0.2s ease;
+    }
+    .task-status-card:hover {
+      background: rgba(255, 255, 255, 0.04) !important;
+      border-color: rgba(99, 102, 241, 0.25) !important;
+    }
   </style>
 </head>
 <body>
@@ -1005,7 +1037,7 @@
 
           <div class="form-group">
             <label for="main-branch">Base Branch</label>
-            <input type="text" id="main-branch" value="main" required placeholder="e.g. main">
+            <select id="main-branch" required></select>
           </div>
 
           <div class="form-group">
@@ -1042,7 +1074,10 @@
       <div id="phase-active-card" class="glass-card">
         <div class="card-title">
           <h2>Active Controls</h2>
-          <button class="btn btn-danger" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;" onclick="resetToDraft()">New Phase</button>
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="btn btn-secondary" id="active-add-task-btn" style="padding: 0.3rem 0.6rem; font-size: 0.75rem; border-color: rgba(99, 102, 241, 0.4); color: #818cf8; display: none;" onclick="openAddTaskModal()">+ Add Task</button>
+            <button class="btn btn-danger" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;" onclick="resetToDraft()">New Phase</button>
+          </div>
         </div>
 
         <div class="active-phase-header">
@@ -1113,6 +1148,44 @@
 
   </div>
 
+  <!-- Add Task Modal -->
+  <div id="add-task-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-card glass-card">
+      <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
+        <h3 style="margin: 0; font-size: 1.1rem; color: var(--text-main);">Add Task to Active Phase</h3>
+        <button type="button" class="btn btn-secondary" onclick="closeAddTaskModal()" style="padding: 0.15rem 0.45rem; font-size: 0.75rem; border-color: rgba(255,255,255,0.1); margin: 0;">✕</button>
+      </div>
+      <form id="add-task-form" onsubmit="submitAddTask(event)">
+        <div class="form-group">
+          <label for="new-task-title">Task Title</label>
+          <input type="text" id="new-task-title" required placeholder="e.g. Implement connections module">
+        </div>
+        <div class="form-group">
+          <label for="new-task-description">Task Description (Jules Prompt)</label>
+          <textarea id="new-task-description" rows="3" required placeholder="Write requirements for Jules..."></textarea>
+        </div>
+        <div class="form-group">
+          <label for="new-task-notes">Jules Guidelines/Notes (Optional)</label>
+          <textarea id="new-task-notes" rows="2" placeholder="Specific notes/instructions for Jules..."></textarea>
+        </div>
+        <div class="form-group">
+          <label for="new-task-mode">Mode</label>
+          <select id="new-task-mode">
+            <option value="ai_assisted">AI Assisted (Jules Automation)</option>
+            <option value="manual">Manual (Human Merged)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Depends On (Predecessors)</label>
+          <div id="new-task-deps-container" style="max-height: 120px; overflow-y: auto; background: rgba(0,0,0,0.25); padding: 0.5rem; border-radius: 6px; border: 1px solid rgba(255,255,255,0.05); display: flex; flex-direction: column; gap: 0.4rem;">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+        <button type="submit" class="btn" style="width: 100%; margin-top: 1rem; padding: 0.65rem;">Add Task</button>
+      </form>
+    </div>
+  </div>
+
   <script>
     let tasksList = [];
     let selectedTaskIndex = 0;
@@ -1147,6 +1220,10 @@
       document.getElementById('nav-btn-logs').classList.remove('active');
       
       document.getElementById(`nav-btn-${screenId}`).classList.add('active');
+
+      if (screenId === 'setup') {
+        loadBranchesDropdown();
+      }
     }
 
     // Save/Restore draft progress
@@ -1584,6 +1661,7 @@
 
         const phase = await response.json();
         
+        document.getElementById('active-add-task-btn').style.display = 'block';
         document.getElementById('active-phase-title').innerText = phase.title;
         const statusBadge = document.getElementById('active-phase-status');
         statusBadge.innerText = phase.status;
@@ -1669,6 +1747,7 @@
         setSystemStatus(true);
 
         const data = await response.json();
+        tasksList = data.tasks || [];
         
         const statusBadge = document.getElementById('active-phase-status');
         statusBadge.innerText = data.phase.status;
@@ -1780,20 +1859,39 @@
 
           item.innerHTML = `
             <div class="timeline-dot timeline-dot-${task.status}"></div>
-            <div class="task-status-card">
-              <div class="task-status-info" style="flex: 1;">
-                <h4>
-                  ${pulseDot}
-                  <span>${task.title}</span>
-                  ${retryContent}
-                </h4>
-                <p style="margin-top: 0.1rem;">ID: ${task.id} ${statusDetailText}</p>
+            <div class="task-status-card" onclick="toggleTaskCardDetails(${task.id}, event)">
+              <div style="display: flex; justify-content: space-between; align-items: flex-start; width: 100%;">
+                <div class="task-status-info" style="flex: 1;">
+                  <h4>
+                    ${pulseDot}
+                    <span>${task.title}</span>
+                    ${retryContent}
+                  </h4>
+                  <p style="margin-top: 0.1rem; font-size: 0.75rem; color: var(--text-muted);">ID: ${task.id} ${statusDetailText}</p>
+                </div>
+                <div class="task-status-actions" style="margin-left: 1rem; flex-shrink: 0; display: flex; align-items: flex-end; flex-direction: column; gap: 0.4rem;">
+                  <span class="badge badge-${task.status}">${task.status}</span>
+                  ${actionContent}
+                </div>
+              </div>
+              
+              <div id="task-card-details-${task.id}" class="task-card-details" style="display: none; margin-top: 0.75rem; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 0.75rem; font-size: 0.8rem; color: var(--text-muted);">
+                <div style="margin-bottom: 0.5rem;">
+                  <strong style="color: var(--text-main); display: block; margin-bottom: 0.15rem;">Description:</strong>
+                  <p style="margin: 0; white-space: pre-wrap; background: rgba(0,0,0,0.15); padding: 0.5rem; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.03);">${task.description || 'No description provided.'}</p>
+                </div>
+                ${task.jules_notes ? `
+                <div style="margin-bottom: 0.5rem;">
+                  <strong style="color: var(--text-main); display: block; margin-bottom: 0.15rem;">Jules Guidelines:</strong>
+                  <p style="margin: 0; white-space: pre-wrap; background: rgba(0,0,0,0.15); padding: 0.5rem; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.03);">${task.jules_notes}</p>
+                </div>
+                ` : ''}
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.5rem; margin-bottom: 0.5rem;">
+                  <div><strong style="color: var(--text-main);">Mode:</strong> ${task.mode === 'ai_assisted' ? '🤖 AI Assisted' : '👤 Manual'}</div>
+                  ${task.jules_session_id ? `<div><strong style="color: var(--text-main);">Session ID:</strong> <code>${task.jules_session_id}</code></div>` : ''}
+                </div>
                 ${depTags}
                 ${controlButtons}
-              </div>
-              <div class="task-status-actions" style="margin-left: 1rem; flex-shrink: 0; align-items: flex-end; flex-direction: column; gap: 0.4rem;">
-                <span class="badge badge-${task.status}">${task.status}</span>
-                ${actionContent}
               </div>
             </div>
           `;
@@ -1919,6 +2017,132 @@
       }, 3000);
     }
 
+    async function loadBranchesDropdown() {
+      const dropdown = document.getElementById('main-branch');
+      if (!dropdown) return;
+      dropdown.innerHTML = '<option value="main">Loading branches...</option>';
+      try {
+        const response = await fetch('/api/phases/github/branches', {
+          headers: getHeaders()
+        });
+        if (!response.ok) throw new Error('Fetch failed');
+        const branches = await response.json();
+        dropdown.innerHTML = '';
+        branches.forEach(branch => {
+          const option = document.createElement('option');
+          option.value = branch;
+          option.innerText = branch;
+          dropdown.appendChild(option);
+        });
+        if (branches.includes('main')) {
+          dropdown.value = 'main';
+        } else if (branches.includes('master')) {
+          dropdown.value = 'master';
+        }
+      } catch (err) {
+        console.error('Error loading branches:', err);
+        dropdown.innerHTML = `
+          <option value="main">main</option>
+          <option value="master">master</option>
+          <option value="dev">dev</option>
+        `;
+      }
+    }
+
+    function toggleTaskCardDetails(taskId, event) {
+      if (event && (event.target.tagName === 'BUTTON' || event.target.tagName === 'A' || event.target.closest('button') || event.target.closest('a'))) {
+        return;
+      }
+      const elem = document.getElementById(`task-card-details-${taskId}`);
+      if (elem) {
+        const isHidden = elem.style.display === 'none';
+        elem.style.display = isHidden ? 'block' : 'none';
+      }
+    }
+
+    function openAddTaskModal() {
+      const modal = document.getElementById('add-task-modal');
+      const form = document.getElementById('add-task-form');
+      if (form) form.reset();
+      
+      // Populate dependencies list
+      const depsContainer = document.getElementById('new-task-deps-container');
+      if (depsContainer) {
+        depsContainer.innerHTML = '';
+        tasksList.forEach(t => {
+          const div = document.createElement('div');
+          div.style.display = 'flex';
+          div.style.alignItems = 'center';
+          div.style.gap = '0.35rem';
+          div.innerHTML = `
+            <input type="checkbox" id="dep-new-${t.id}" value="${t.id}">
+            <label for="dep-new-${t.id}" style="margin: 0; font-size: 0.75rem; color: var(--text-main); cursor: pointer;">${t.title} (ID: ${t.id})</label>
+          `;
+          depsContainer.appendChild(div);
+        });
+        if (tasksList.length === 0) {
+          depsContainer.innerHTML = '<span style="font-size: 0.75rem; color: var(--text-muted);">No existing tasks.</span>';
+        }
+      }
+      
+      if (modal) modal.style.display = 'flex';
+    }
+
+    function closeAddTaskModal() {
+      const modal = document.getElementById('add-task-modal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    async function submitAddTask(event) {
+      event.preventDefault();
+      if (!activePhaseId) {
+        alert('No active phase.');
+        return;
+      }
+      
+      const title = document.getElementById('new-task-title').value;
+      const description = document.getElementById('new-task-description').value;
+      const jules_notes = document.getElementById('new-task-notes').value;
+      const mode = document.getElementById('new-task-mode').value;
+      
+      // Collect selected dependencies
+      const depends_on = [];
+      tasksList.forEach(t => {
+        const checkbox = document.getElementById(`dep-new-${t.id}`);
+        if (checkbox && checkbox.checked) {
+          depends_on.push(t.id);
+        }
+      });
+      
+      try {
+        const response = await fetch(`/api/phases/${activePhaseId}/tasks`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({ title, description, jules_notes, mode, depends_on })
+        });
+        
+        if (!response.ok) {
+          const err = await response.json();
+          alert('Failed to add task: ' + (err.error || response.statusText));
+          return;
+        }
+        
+        showToast('New task added successfully.');
+        closeAddTaskModal();
+        
+        // Reload active phase layout & poll status
+        const healthBoxText = document.getElementById('polling-health-box').innerText;
+        if (healthBoxText === 'COMPLETED' || healthBoxText === 'OFFLINE') {
+          loadActivePhase();
+        } else {
+          await pollStatus();
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Network error adding task: ' + err.message);
+      }
+    }
+
     async function updateQALog() {
       if (!activePhaseId) return;
 
@@ -1986,6 +2210,7 @@
         if (qaInterval) clearInterval(qaInterval);
         
         activePhaseId = null;
+        document.getElementById('active-add-task-btn').style.display = 'none';
         document.getElementById('phase-active-card').style.display = 'none';
         document.getElementById('phase-creation-card').style.display = 'block';
         

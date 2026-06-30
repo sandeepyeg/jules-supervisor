@@ -19,9 +19,9 @@ router.get('/:phaseId', portalAuth, async (req, res) => {
       return res.status(404).json({ error: 'Phase not found' });
     }
 
-    // Retrieve clean task metadata for visualization
+    // Retrieve all task metadata for visualization
     const [tasks] = await pool.query(
-      'SELECT id, title, status, jules_session_id, pr_url, retry_count FROM tasks WHERE phase_id = ? ORDER BY sort_order ASC',
+      'SELECT * FROM tasks WHERE phase_id = ? ORDER BY sort_order ASC',
       [phaseId]
     );
 

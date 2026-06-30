@@ -105,7 +105,9 @@ export async function reviewAndMerge(task) {
       await telegram.sendPRBlockedNotification({
         taskTitle: task.title,
         prUrl: task.pr_url || `https://github.com/sandeepyeg/project-jupitor/pull/${task.pr_number}`,
-        reason: `PR diff size (${rawDiff.length} chars) exceeds the maximum allowed limit of ${MAX_PR_DIFF_CHARS} chars. Human review required.`
+        riskLevel: 'high',
+        blockingReason: `PR diff size (${rawDiff.length} chars) exceeds the maximum allowed limit of ${MAX_PR_DIFF_CHARS} chars.`,
+        julesFix: 'Manual human review and merge required'
       });
       return { merged: false, approved: false, reason: 'PR diff size exceeds maximum allowed limit' };
     }

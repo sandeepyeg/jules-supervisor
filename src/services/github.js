@@ -200,6 +200,7 @@ export async function getPR(prNumber) {
       sha: data.head?.sha
     },
     state: data.state,
+    merged: data.merged,
     mergeable: data.mergeable,
     changed_files: data.changed_files,
     additions: data.additions,

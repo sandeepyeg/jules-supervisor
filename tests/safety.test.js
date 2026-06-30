@@ -9,10 +9,13 @@ import { bot } from '../src/services/telegram.js';
 import * as github from '../src/services/github.js';
 import * as jules from '../src/services/jules.js';
 import { reloadConfig } from '../src/core/config.js';
+import tasksRouter from '../src/api/tasks.js';
+import { getPortalSecret } from '../src/api/auth.js';
 
 test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
   let phaseId = null;
   let task1Id = null;
+  let task2Id = null;
 
   // Track sent Telegram messages & Jules correction messages
   const sentTelegramMessages = [];
@@ -27,7 +30,10 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
   // Mock globalFetch
   let mockPRBase = 'main';
   let mockPRMergeable = true;
+  let mockPRMerged = true;
   let mockPRChecksState = 'passing';
+  let approveCalled = false;
+  let mergeCalled = false;
   let mockPRDiff = 'diff --git a/src/core/env.js b/src/core/env.js\n+console.log("changes");';
   let mockPRFiles = [{ filename: 'src/core/env.js' }];
   let mockAICanPass = true;
@@ -91,6 +97,7 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
             base: { ref: mockPRBase },
             head: { ref: 'feature/task-1', sha: 'sha123' },
             state: 'open',
+            merged: mockPRMerged,
             mergeable: mockPRMergeable,
             changed_files: mockPRFiles.length,
             additions: 10,
@@ -111,15 +118,23 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
         };
       }
       if (checkUrl.includes('/reviews') && options.method === 'POST') {
+        approveCalled = true;
         return { ok: true, json: async () => ({}) };
       }
       if (checkUrl.includes('/merge') && options.method === 'PUT') {
+        mergeCalled = true;
         return { ok: true, json: async () => ({}) };
       }
     }
 
     // Jules Mock
     if (checkUrl.includes('jules.googleapis.com')) {
+      if (checkUrl.endsWith('/sessions') && options.method === 'POST') {
+        return {
+          ok: true,
+          json: async () => ({ name: 'sessions/mock_jules_session_xyz' })
+        };
+      }
       if (checkUrl.includes(':sendmessage')) {
         const bodyObj = JSON.parse(options.body);
         julesMessages.push({ sessionId: 'session_xyz', prompt: bodyObj.prompt });
@@ -148,6 +163,12 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
       [phaseId, 'Safety Test Task', 'Configure new auth environment wrapper', 'ai_assisted', 'queued', 1]
     );
     task1Id = taskRes.insertId;
+
+    const [task2Res] = await pool.query(
+      'INSERT INTO tasks (phase_id, title, description, mode, status, sort_order, depends_on) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [phaseId, 'Safety Test Task 2', 'Implement logging', 'ai_assisted', 'queued', 2, JSON.stringify([task1Id])]
+    );
+    task2Id = task2Res.insertId;
   });
 
   t.after(async () => {
@@ -269,10 +290,19 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     };
 
     sentTelegramMessages.length = 0;
+    approveCalled = false;
+    mergeCalled = false;
+    await queries.updateTaskStatus(task1Id, 'running');
 
     const reviewResult = await prReviewer.reviewAndMerge(task);
 
     assert.strictEqual(reviewResult.merged, false);
+    assert.strictEqual(approveCalled, false);
+    assert.strictEqual(mergeCalled, false);
+
+    const updatedTask = await queries.getTask(task1Id);
+    assert.strictEqual(updatedTask.status, 'pr_open');
+
     assert.ok(sentTelegramMessages.length > 0);
     assert.ok(sentTelegramMessages[0].text.includes('Ready for Review') || sentTelegramMessages[0].text.includes('Blocked by Supervisor'));
   });
@@ -367,15 +397,105 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     assert.strictEqual(reviewResult.approved, false);
     assert.strictEqual(reviewResult.reason, 'PR diff size exceeds maximum allowed limit');
 
+    // Verify Telegram alert contains no undefined values and matches expected format
+    assert.ok(sentTelegramMessages.length > 0);
+    const text = sentTelegramMessages[0].text;
+    assert.ok(text.includes('Blocked by Supervisor'));
+    assert.ok(!text.includes('undefined'));
+    assert.ok(text.includes('Reason: PR diff size (71 chars) exceeds the maximum allowed limit of 10 chars.'));
+    assert.ok(text.includes('Jules Instruction: Manual human review and merge required'));
+
     // Restore config
     process.env.MAX_PR_DIFF_CHARS = '120000';
     reloadConfig();
+  });
+
+  await t.test('manual mark-merged rejects PR targeting main', async () => {
+    mockPRBase = 'main';
+    mockPRMerged = true;
+    
+    await queries.updateTaskStatus(task1Id, 'pr_open', { pr_number: 101 });
+
+    const req = {
+      method: 'POST',
+      url: `/${task1Id}/mark-merged`,
+      params: { id: String(task1Id) },
+      headers: {
+        'x-portal-key': getPortalSecret()
+      }
+    };
+    let responseStatus = 200;
+    let responseBody = null;
+    const res = {
+      status(code) { responseStatus = code; return this; },
+      json(data) { responseBody = data; return this; }
+    };
+
+    await new Promise((resolve) => {
+      const origJson = res.json;
+      res.json = (data) => {
+        origJson.call(res, data);
+        resolve();
+        return res;
+      };
+      tasksRouter(req, res, () => {
+        resolve();
+      });
+    });
+
+    assert.strictEqual(responseStatus, 400);
+    assert.ok(responseBody.error.includes('forbidden base branch: main'));
+  });
+
+  await t.test('manual mark-merged accepts PR targeting phase branch and triggers dependent tasks', async () => {
+    mockPRBase = 'feature/phase-10';
+    mockPRMerged = true;
+    
+    await queries.updatePhaseStatus(phaseId, 'active');
+    await queries.updateTaskStatus(task1Id, 'pr_open', { pr_number: 101 });
+    await queries.updateTaskStatus(task2Id, 'queued');
+
+    const req = {
+      method: 'POST',
+      url: `/${task1Id}/mark-merged`,
+      params: { id: String(task1Id) },
+      headers: {
+        'x-portal-key': getPortalSecret()
+      }
+    };
+    let responseStatus = 200;
+    let responseBody = null;
+    const res = {
+      status(code) { responseStatus = code; return this; },
+      json(data) { responseBody = data; return this; }
+    };
+
+    await new Promise((resolve) => {
+      const origJson = res.json;
+      res.json = (data) => {
+        origJson.call(res, data);
+        resolve();
+        return res;
+      };
+      tasksRouter(req, res, () => {
+        resolve();
+      });
+    });
+
+    assert.strictEqual(responseStatus, 200);
+    
+    const t1 = await queries.getTask(task1Id);
+    assert.strictEqual(t1.status, 'merged');
+
+    const t2 = await queries.getTask(task2Id);
+    assert.strictEqual(t2.status, 'running');
   });
 
   await t.test('Phase completion does not merge into main', async () => {
     // Update phase to active, complete all tasks
     await queries.updatePhaseStatus(phaseId, 'active', { phase_branch: 'feature/phase-10' });
     await queries.updateTaskStatus(task1Id, 'merged');
+    await queries.updateTaskStatus(task2Id, 'skipped'); // skip task2 to allow completion check
 
     sentTelegramMessages.length = 0;
 

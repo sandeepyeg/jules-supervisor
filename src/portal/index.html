@@ -1845,10 +1845,9 @@
         return;
       }
       try {
-        const response = await fetch(`/api/tasks/${taskId}`, {
-          method: 'PATCH',
-          headers: getHeaders(),
-          body: JSON.stringify({ status: 'merged' })
+        const response = await fetch(`/api/tasks/${taskId}/mark-merged`, {
+          method: 'POST',
+          headers: getHeaders()
         });
         if (!response.ok) {
           const err = await response.json();

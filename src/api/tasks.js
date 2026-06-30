@@ -1,6 +1,7 @@
 import express from 'express';
 import * as queries from '../db/queries.js';
 import { portalAuth } from './auth.js';
+import * as github from '../services/github.js';
 
 const router = express.Router();
 
@@ -61,6 +62,70 @@ router.patch('/:id', portalAuth, async (req, res) => {
     res.json(updated);
   } catch (error) {
     console.error(`Error updating task #${taskId}:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/tasks/:id/mark-merged
+ * Manually confirms and marks a task as merged after verifying the PR status on GitHub.
+ */
+router.post('/:id/mark-merged', portalAuth, async (req, res) => {
+  const taskId = parseInt(req.params.id, 10);
+  try {
+    const task = await queries.getTask(taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    const phase = await queries.getPhase(task.phase_id);
+    if (!phase) {
+      return res.status(404).json({ error: 'Phase not found' });
+    }
+
+    if (!task.pr_number) {
+      return res.status(400).json({ error: 'Task has no associated PR number' });
+    }
+
+    // Fetch PR details from GitHub
+    const pr = await github.getPR(task.pr_number);
+    if (!pr) {
+      return res.status(404).json({ error: `Could not retrieve PR #${task.pr_number} metadata from GitHub` });
+    }
+
+    const baseBranch = pr.base?.ref;
+    if (!baseBranch) {
+      return res.status(400).json({ error: 'Could not resolve PR base branch' });
+    }
+
+    // Validation checks
+    if (baseBranch === 'main') {
+      return res.status(400).json({ error: 'PR targets the forbidden base branch: main' });
+    }
+
+    if (baseBranch !== phase.phase_branch) {
+      return res.status(400).json({ error: `PR targets base branch "${baseBranch}", but the active phase branch is "${phase.phase_branch}"` });
+    }
+
+    // State/Merged validation check
+    const isMerged = pr.merged === true || pr.state === 'closed';
+    if (!isMerged) {
+      return res.status(400).json({ error: 'PR is not merged yet on GitHub' });
+    }
+
+    // Mark task as merged
+    await queries.updateTaskStatus(taskId, 'merged');
+    const updated = await queries.getTask(taskId);
+
+    // Immediately trigger downstream queued tasks
+    if (phase.status === 'active') {
+      const { startReadyTasks } = await import('../core/taskManager.js');
+      await startReadyTasks(phase.id, phase.phase_branch);
+    }
+
+    res.json(updated);
+  } catch (error) {
+    console.error(`Error marking task #${taskId} as merged:`, error);
     res.status(500).json({ error: error.message });
   }
 });

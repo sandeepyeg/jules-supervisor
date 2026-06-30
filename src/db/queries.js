@@ -90,6 +90,17 @@ export async function getActiveTasks(phaseId) {
 }
 
 /**
+ * Returns ALL tasks for a phase regardless of status.
+ */
+export async function getTasksForPhase(phaseId) {
+  const [rows] = await pool.query(
+    'SELECT * FROM tasks WHERE phase_id = ? ORDER BY sort_order ASC',
+    [phaseId]
+  );
+  return rows;
+}
+
+/**
  * Resolves queued tasks whose dependencies have already merged or skipped.
  */
 export async function getQueuedReadyTasks(phaseId) {

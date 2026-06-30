@@ -11,7 +11,9 @@ import {
   STRONG_REVIEW_PROVIDER,
   STRONG_REVIEW_MODEL,
   PRIMARY_SUPERVISOR_PROVIDER,
-  PRIMARY_SUPERVISOR_MODEL
+  PRIMARY_SUPERVISOR_MODEL,
+  BACKUP_SUPERVISOR_PROVIDER,
+  BACKUP_SUPERVISOR_MODEL
 } from './config.js';
 
 /**
@@ -98,8 +100,14 @@ export async function reviewAndMerge(task) {
 
     let rawDiff = await github.getPRDiff(task.pr_number);
     if (rawDiff.length > MAX_PR_DIFF_CHARS) {
-      console.warn(`PR diff length (${rawDiff.length}) exceeds MAX_PR_DIFF_CHARS (${MAX_PR_DIFF_CHARS}). Truncating.`);
-      rawDiff = rawDiff.substring(0, MAX_PR_DIFF_CHARS);
+      console.warn(`PR diff length (${rawDiff.length}) exceeds MAX_PR_DIFF_CHARS (${MAX_PR_DIFF_CHARS}). Blocking and requesting human review.`);
+      await updateTaskStatus(task.id, 'pr_open');
+      await telegram.sendPRBlockedNotification({
+        taskTitle: task.title,
+        prUrl: task.pr_url || `https://github.com/sandeepyeg/project-jupitor/pull/${task.pr_number}`,
+        reason: `PR diff size (${rawDiff.length} chars) exceeds the maximum allowed limit of ${MAX_PR_DIFF_CHARS} chars. Human review required.`
+      });
+      return { merged: false, approved: false, reason: 'PR diff size exceeds maximum allowed limit' };
     }
 
     // 4. Detect Risk
@@ -152,15 +160,29 @@ Check this diff chunk against the task requirements. The response must be strict
 }`;
 
       let chunkResult;
+      let primarySucceeded = false;
+      let primaryError = null;
       try {
         const responseText = await ai.askModel(provider, model, prompt, { returnJson: true, temperature: 0.1 });
         const clean = responseText.replace(/```json|```/g, '').trim();
         chunkResult = JSON.parse(clean);
-      } catch (parseError) {
-        console.error(`Failed to parse AI review response chunk ${idx + 1}:`, parseError);
-        approved = false;
-        blockingIssues.push(`Failed to parse AI review JSON response for chunk ${idx + 1}: ${parseError.message}`);
-        continue;
+        primarySucceeded = true;
+      } catch (err) {
+        primaryError = err;
+        console.warn(`Primary AI review call or JSON parsing failed for chunk ${idx + 1}. Routing to backup supervisor model... Error: ${err.message}`);
+      }
+
+      if (!primarySucceeded) {
+        try {
+          const responseText = await ai.askModel(BACKUP_SUPERVISOR_PROVIDER, BACKUP_SUPERVISOR_MODEL, prompt, { returnJson: true, temperature: 0.1 });
+          const clean = responseText.replace(/```json|```/g, '').trim();
+          chunkResult = JSON.parse(clean);
+        } catch (fallbackError) {
+          console.error(`Fallback AI review call or JSON parsing also failed for chunk ${idx + 1}:`, fallbackError);
+          approved = false;
+          blockingIssues.push(`AI review chunk ${idx + 1} failed: Primary error: ${primaryError.message}. Fallback error: ${fallbackError.message}`);
+          continue;
+        }
       }
 
       if (chunkResult.approved === false || chunkResult.approved === 'false') {
@@ -198,15 +220,25 @@ Check this diff chunk against the task requirements. The response must be strict
 
     // 8. Validate test evidence for code behavior changes
     const hasSourceChanges = filenames.some(f => f.endsWith('.js') || f.endsWith('.py') || f.includes('/src/'));
-    const testEvidenceText = testEvidences.join('; ').toLowerCase();
-    const hasTestEvidence = testEvidenceText.includes('test') && 
-                            !testEvidenceText.includes('no test') && 
-                            !testEvidenceText.includes('missing') && 
-                            !testEvidenceText.includes('unknown');
+    const hasTestFileChanges = filenames.some(f => {
+      const lower = f.toLowerCase();
+      return lower.includes('test') || lower.includes('spec') || lower.includes('__tests__');
+    });
 
-    if (hasSourceChanges && !hasTestEvidence) {
-      approved = false;
-      blockingIssues.push('Missing or unknown test evidence for code behavior changes.');
+    const testEvidenceText = testEvidences.join('; ').toLowerCase();
+    const hasTestEvidenceText = testEvidenceText.includes('test') && 
+                                !testEvidenceText.includes('no test') && 
+                                !testEvidenceText.includes('missing') && 
+                                !testEvidenceText.includes('unknown');
+
+    if (hasSourceChanges) {
+      const verifiedByTestFile = hasTestFileChanges;
+      const verifiedByChecks = hasTestEvidenceText && checksStatus === 'passing';
+      
+      if (!verifiedByTestFile && !verifiedByChecks) {
+        approved = false;
+        blockingIssues.push('Missing verifiable test evidence. You must either include test file modifications, or ensure Gemini test evidence is provided AND GitHub checks are passing.');
+      }
     }
 
     // Accumulate all blockers
@@ -244,7 +276,7 @@ Check this diff chunk against the task requirements. The response must be strict
         await github.approvePR(task.pr_number);
         
         console.log(`Merging PR #${task.pr_number}...`);
-        await github.mergePR(task.pr_number, task.title);
+        await github.mergePR(task.pr_number, task.title, phase.phase_branch);
         
         // Update task to merged status
         await updateTaskStatus(task.id, 'merged');

@@ -1,4 +1,5 @@
 import nodeFetch from 'node-fetch';
+import { NEVER_MERGE_TO_MAIN } from '../core/config.js';
 const fetch = (...args) => (globalThis.__mockFetch || nodeFetch)(...args);
 
 const getHeaders = (extraHeaders = {}) => {
@@ -115,7 +116,30 @@ export async function approvePR(prNumber) {
 /**
  * Merges a pull request using the squash method.
  */
-export async function mergePR(prNumber, prTitle) {
+export async function mergePR(prNumber, prTitle, expectedBaseBranch) {
+  // 1. Fetch current PR details to verify base branch
+  const pr = await getPR(prNumber);
+  const baseBranch = pr.base?.ref;
+
+  if (!baseBranch) {
+    throw new Error(`Failed to retrieve base branch for PR #${prNumber}`);
+  }
+
+  // 2. Validate expectedBaseBranch if provided
+  if (expectedBaseBranch && baseBranch !== expectedBaseBranch) {
+    throw new Error(`PR #${prNumber} base branch "${baseBranch}" does not match expected branch "${expectedBaseBranch}". Merge aborted.`);
+  }
+
+  // 3. Refuse merge if base branch is main
+  if (baseBranch === 'main') {
+    throw new Error(`Squash merge of PR #${prNumber} into "main" is strictly forbidden.`);
+  }
+
+  // 4. Final hard guard NEVER_MERGE_TO_MAIN
+  if (NEVER_MERGE_TO_MAIN && baseBranch === 'main') {
+    throw new Error(`Squash merge of PR #${prNumber} into "main" is blocked by NEVER_MERGE_TO_MAIN.`);
+  }
+
   const repoUrl = getRepoUrl();
   const url = `${repoUrl}/pulls/${prNumber}/merge`;
   

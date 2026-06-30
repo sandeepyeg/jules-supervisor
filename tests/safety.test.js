@@ -8,6 +8,7 @@ import * as poller from '../src/core/poller.js';
 import { bot } from '../src/services/telegram.js';
 import * as github from '../src/services/github.js';
 import * as jules from '../src/services/jules.js';
+import { reloadConfig } from '../src/core/config.js';
 
 test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
   let phaseId = null;
@@ -197,6 +198,7 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
 
     process.env.NEVER_MERGE_TO_MAIN = 'true';
     process.env.TASK_AUTO_MERGE_TO_PHASE_BRANCH = 'true';
+    reloadConfig();
 
     const task = {
       id: task1Id,
@@ -225,6 +227,7 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     mockPRFiles = [{ filename: 'src/core/env.js' }];
 
     process.env.TASK_AUTO_MERGE_TO_PHASE_BRANCH = 'false';
+    reloadConfig();
 
     const task = {
       id: task1Id,
@@ -253,6 +256,7 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     mockPRFiles = [{ filename: 'src/core/auth.js' }]; // triggers file name risk logic
 
     process.env.TASK_AUTO_MERGE_TO_PHASE_BRANCH = 'true'; // even if auto-merge is enabled
+    reloadConfig();
 
     const task = {
       id: task1Id,
@@ -297,7 +301,75 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     // Since it's not approved, Telegram must receive a blocked notification
     assert.ok(sentTelegramMessages.length > 0);
     assert.ok(sentTelegramMessages[0].text.includes('Blocked by Supervisor'));
-    assert.ok(sentTelegramMessages[0].text.includes('Missing or unknown test evidence'));
+    assert.ok(sentTelegramMessages[0].text.includes('Missing verifiable test evidence'));
+  });
+
+  await t.test('TASK_AUTO_MERGE_TO_PHASE_BRANCH=true squash merges successfully into phase branch but not main', async () => {
+    mockPRBase = 'feature/phase-10';
+    mockAIResponse.approved = true;
+    mockAIResponse.riskLevel = 'low';
+    mockAIResponse.missingRequirements = [];
+    mockAIResponse.blockingIssues = [];
+    mockAIResponse.testEvidence = 'Tests verified and passing';
+    mockPRFiles = [{ filename: 'src/core/env.js' }];
+
+    process.env.TASK_AUTO_MERGE_TO_PHASE_BRANCH = 'true';
+    reloadConfig();
+
+    const task = {
+      id: task1Id,
+      phase_id: phaseId,
+      title: 'Safety Test Task',
+      description: 'Configure new auth environment wrapper',
+      pr_number: 101,
+      jules_session_id: 'session_xyz',
+      pr_url: 'https://github.com/mock/pull/101'
+    };
+
+    sentTelegramMessages.length = 0;
+
+    const reviewResult = await prReviewer.reviewAndMerge(task);
+
+    // It should merge successfully!
+    assert.strictEqual(reviewResult.merged, true);
+    assert.strictEqual(reviewResult.blocked, undefined);
+  });
+
+  await t.test('PR diff size exceeding MAX_PR_DIFF_CHARS blocks auto-merge and escalates to Telegram', async () => {
+    mockPRBase = 'feature/phase-10';
+    mockAIResponse.approved = true;
+    mockAIResponse.riskLevel = 'low';
+    mockAIResponse.missingRequirements = [];
+    mockAIResponse.blockingIssues = [];
+    mockAIResponse.testEvidence = 'Tests verified and passing';
+    mockPRFiles = [{ filename: 'src/core/env.js' }];
+    
+    // Set MAX_PR_DIFF_CHARS low so mockPRDiff exceeds it
+    process.env.MAX_PR_DIFF_CHARS = '10';
+    reloadConfig();
+
+    const task = {
+      id: task1Id,
+      phase_id: phaseId,
+      title: 'Safety Test Task',
+      description: 'Configure new auth environment wrapper',
+      pr_number: 101,
+      jules_session_id: 'session_xyz',
+      pr_url: 'https://github.com/mock/pull/101'
+    };
+
+    sentTelegramMessages.length = 0;
+
+    const reviewResult = await prReviewer.reviewAndMerge(task);
+
+    // It should block and not merge
+    assert.strictEqual(reviewResult.merged, false);
+    assert.strictEqual(reviewResult.approved, false);
+    assert.strictEqual(reviewResult.reason, 'PR diff size exceeds maximum allowed limit');
+
+    // Restore config
+    process.env.MAX_PR_DIFF_CHARS = '120000';
+    reloadConfig();
   });
 
   await t.test('Phase completion does not merge into main', async () => {

@@ -1762,14 +1762,18 @@
           let controlButtons = '';
           const showSkip = ['running', 'waiting_answer', 'failed'].includes(task.status);
           const showRetry = ['failed', 'waiting_answer'].includes(task.status);
+          const showMarkMerged = ['pr_open'].includes(task.status);
 
-          if (showSkip || showRetry) {
+          if (showSkip || showRetry || showMarkMerged) {
             controlButtons = `<div style="display: flex; gap: 0.25rem; margin-top: 0.4rem;">`;
             if (showRetry) {
               controlButtons += `<button class="btn btn-secondary" style="padding: 0.2rem 0.45rem; font-size: 0.7rem; font-weight: 500;" onclick="retryTask(${task.id})">🔄 Retry</button>`;
             }
             if (showSkip) {
               controlButtons += `<button class="btn btn-secondary btn-danger" style="padding: 0.2rem 0.45rem; font-size: 0.7rem; font-weight: 500; background: transparent; border-color: rgba(239, 68, 68, 0.3); color: #f87171;" onclick="skipTask(${task.id})">⏭ Skip</button>`;
+            }
+            if (showMarkMerged) {
+              controlButtons += `<button class="btn btn-secondary" style="padding: 0.2rem 0.45rem; font-size: 0.7rem; font-weight: 500; border-color: rgba(16, 185, 129, 0.35); color: #34d399;" onclick="markTaskMerged(${task.id})">✅ Mark Merged</button>`;
             }
             controlButtons += `</div>`;
           }
@@ -1833,6 +1837,35 @@
       } catch (err) {
         console.error(err);
         alert('Network error skipping task: ' + err.message);
+      }
+    }
+
+    async function markTaskMerged(taskId) {
+      if (!confirm('Are you sure you want to mark this task as merged? Use this only after the PR has been manually merged by a human.')) {
+        return;
+      }
+      try {
+        const response = await fetch(`/api/tasks/${taskId}`, {
+          method: 'PATCH',
+          headers: getHeaders(),
+          body: JSON.stringify({ status: 'merged' })
+        });
+        if (!response.ok) {
+          const err = await response.json();
+          alert('Failed to mark task as merged: ' + (err.error || response.statusText));
+          return;
+        }
+        showToast('Task marked as merged.');
+        
+        const healthBoxText = document.getElementById('polling-health-box').innerText;
+        if (healthBoxText === 'COMPLETED' || healthBoxText === 'OFFLINE') {
+          loadActivePhase();
+        } else {
+          await pollStatus();
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Network error: ' + err.message);
       }
     }
 

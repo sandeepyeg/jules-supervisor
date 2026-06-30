@@ -8,6 +8,7 @@ import * as sessionHandler from '../src/core/sessionHandler.js';
 import * as questionHandler from '../src/core/questionHandler.js';
 import { bot } from '../src/services/telegram.js';
 import * as poller from '../src/core/poller.js';
+import { reloadConfig } from '../src/core/config.js';
 
 test('End-to-End Real World Supervisor Workflow Simulator', async (t) => {
   let phaseId = null;
@@ -37,16 +38,24 @@ test('End-to-End Real World Supervisor Workflow Simulator', async (t) => {
       
       // If it's a confidence score request
       if (bodyStr.includes('confidence')) {
+        const responsePayload = {
+          confidence: aiConfidence,
+          answer: 'Mocked AI answer recommendation.',
+          reason: 'Sufficient context from codebase.'
+        };
         return {
           ok: true,
           json: async () => ({
+            candidates: [{
+              content: {
+                parts: [{
+                  text: JSON.stringify(responsePayload)
+                }]
+              }
+            }],
             choices: [{
               message: {
-                content: JSON.stringify({
-                  confidence: aiConfidence,
-                  answer: 'Mocked AI answer recommendation.',
-                  reason: 'Sufficient context from codebase.'
-                })
+                content: JSON.stringify(responsePayload)
               }
             }]
           })
@@ -55,15 +64,29 @@ test('End-to-End Real World Supervisor Workflow Simulator', async (t) => {
       
       // If it's a PR Review request
       if (bodyStr.includes('approved')) {
+        const responsePayload = {
+          approved: true,
+          riskLevel: 'low',
+          summary: 'PR diff successfully implements the task description.',
+          missingRequirements: [],
+          filesReviewed: ['server.js'],
+          testEvidence: 'Unit tests passed in system test suite',
+          blockingIssues: [],
+          followUpInstructions: ''
+        };
         return {
           ok: true,
           json: async () => ({
+            candidates: [{
+              content: {
+                parts: [{
+                  text: JSON.stringify(responsePayload)
+                }]
+              }
+            }],
             choices: [{
               message: {
-                content: JSON.stringify({
-                  approved: true,
-                  reason: 'PR diff successfully implements the task description.'
-                })
+                content: JSON.stringify(responsePayload)
               }
             }]
           })
@@ -211,6 +234,9 @@ test('End-to-End Real World Supervisor Workflow Simulator', async (t) => {
 
   // Setup Phase & Tasks in database
   t.before(async () => {
+    process.env.TASK_AUTO_MERGE_TO_PHASE_BRANCH = 'true';
+    reloadConfig();
+
     // Insert Phase
     const [phaseRes] = await pool.query(
       'INSERT INTO phases (title, description, status, main_branch) VALUES (?, ?, ?, ?)',

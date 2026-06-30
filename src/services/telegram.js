@@ -36,29 +36,43 @@ if (!token || token.startsWith('your_')) {
     // start polling cleanly.
     bot = new TelegramBot(token, { polling: false });
 
-    if (typeof bot.deleteWebhook === 'function') {
-      bot.deleteWebhook({ drop_pending_updates: true })
-        .then(() => {
-          bot.startPolling();
-          console.log('Telegram Bot configured for Long-Polling mode (stale sessions cleared).');
-        })
-        .catch((err) => {
-          console.error('Failed to clear Telegram webhook before polling:', err.message);
-          bot.startPolling();
-        });
-    } else {
-      bot.startPolling();
-      console.log('Telegram Bot configured for Long-Polling mode.');
-    }
-
-    // Silence 409 Conflict spams cleanly
+    // Silently swallow 409 Conflict — these fire during node --watch restart
+    // while the old process is still dying. The library retries automatically.
     bot.on('polling_error', (error) => {
       if (error.message && error.message.includes('409 Conflict')) {
-        console.log('Telegram Bot: Connection conflict (409) detected during watch restart. Suppressing trace logs; retrying...');
+        // intentionally silent — this is expected during hot-reload
       } else {
         console.error('Telegram Bot Polling Error:', error);
       }
     });
+
+    // node --watch sends SIGUSR2 to kill the old process. We must stop polling
+    // before the new instance tries to connect, otherwise both fight for the
+    // same Telegram long-polling slot and produce 409 conflicts.
+    const stopAndExit = async (signal) => {
+      try {
+        await bot.stopPolling();
+      } catch (_) {}
+      process.kill(process.pid, signal);
+    };
+
+    process.once('SIGUSR2', () => stopAndExit('SIGUSR2'));
+    process.once('SIGINT',  async () => { try { await bot.stopPolling(); } catch (_) {} process.exit(0); });
+    process.once('SIGTERM', async () => { try { await bot.stopPolling(); } catch (_) {} process.exit(0); });
+
+    // Small startup delay so the previous instance finishes releasing the
+    // Telegram polling connection before we open a new one.
+    setTimeout(() => {
+      bot.deleteWebhook({ drop_pending_updates: true })
+        .then(() => {
+          bot.startPolling();
+          console.log('Telegram Bot configured for Long-Polling mode.');
+        })
+        .catch(() => {
+          bot.startPolling();
+          console.log('Telegram Bot configured for Long-Polling mode.');
+        });
+    }, 1500);
   }
 
   bot.on('message', (msg) => {
@@ -74,18 +88,6 @@ if (!token || token.startsWith('your_')) {
       });
     }
   });
-
-  // Clean shutdown on process exit to avoid 409 conflict on node --watch restarts
-  const cleanExit = async () => {
-    try {
-      if (bot && typeof bot.stopPolling === 'function') {
-        await bot.stopPolling();
-      }
-    } catch (e) {}
-    process.exit(0);
-  };
-  process.once('SIGINT', cleanExit);
-  process.once('SIGTERM', cleanExit);
 }
 
 export { bot };

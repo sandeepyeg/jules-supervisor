@@ -1,11 +1,4 @@
-DROP TABLE IF EXISTS telegram_pending;
-DROP TABLE IF EXISTS qa_log;
-DROP TABLE IF EXISTS tasks;
-DROP TABLE IF EXISTS plan_sections;
-DROP TABLE IF EXISTS sprints;
-DROP TABLE IF EXISTS phases;
-
-CREATE TABLE phases (
+CREATE TABLE IF NOT EXISTS phases (
   id INT AUTO_INCREMENT PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
   description TEXT,
@@ -17,7 +10,7 @@ CREATE TABLE phases (
   completed_at TIMESTAMP NULL
 );
 
-CREATE TABLE tasks (
+CREATE TABLE IF NOT EXISTS tasks (
   id INT AUTO_INCREMENT PRIMARY KEY,
   phase_id INT NOT NULL,
   title VARCHAR(255) NOT NULL,
@@ -37,7 +30,7 @@ CREATE TABLE tasks (
   FOREIGN KEY (phase_id) REFERENCES phases(id) ON DELETE CASCADE
 );
 
-CREATE TABLE qa_log (
+CREATE TABLE IF NOT EXISTS qa_log (
   id INT AUTO_INCREMENT PRIMARY KEY,
   task_id INT NOT NULL,
   jules_question TEXT NOT NULL,
@@ -48,7 +41,7 @@ CREATE TABLE qa_log (
   FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
 );
 
-CREATE TABLE telegram_pending (
+CREATE TABLE IF NOT EXISTS telegram_pending (
   id INT AUTO_INCREMENT PRIMARY KEY,
   task_id INT NOT NULL,
   jules_question TEXT NOT NULL,

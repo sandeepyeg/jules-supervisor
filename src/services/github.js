@@ -347,16 +347,27 @@ export async function createDraftPR(phaseBranch, mainBranch, title) {
  */
 export async function listBranches() {
   const repoUrl = getRepoUrl();
-  const url = `${repoUrl}/branches?per_page=100`;
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: getHeaders()
-  });
+  const allBranches = [];
+  let page = 1;
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Failed to list branches: ${response.statusText} - ${errText}`);
+  while (true) {
+    const url = `${repoUrl}/branches?per_page=100&page=${page}`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: getHeaders()
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Failed to list branches: ${response.statusText} - ${errText}`);
+    }
+
+    const batch = await response.json();
+    if (!Array.isArray(batch) || batch.length === 0) break;
+    allBranches.push(...batch);
+    if (batch.length < 100) break; // last page
+    page++;
   }
 
-  return response.json();
+  return allBranches;
 }

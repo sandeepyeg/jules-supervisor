@@ -7,7 +7,7 @@ const router = express.Router();
 
 /**
  * GET /api/status/:phaseId
- * Returns the status summary of the phase, its tasks, and unresolved Telegram pending questions.
+ * Returns the status summary of the phase, its tasks (with qa_log), and unresolved Telegram pending questions.
  * Polled by the portal frontend.
  */
 router.get('/:phaseId', portalAuth, async (req, res) => {
@@ -24,6 +24,15 @@ router.get('/:phaseId', portalAuth, async (req, res) => {
       'SELECT * FROM tasks WHERE phase_id = ? ORDER BY sort_order ASC',
       [phaseId]
     );
+
+    // Attach Q&A log to each task
+    for (const task of tasks) {
+      const [qaRows] = await pool.query(
+        'SELECT * FROM qa_log WHERE task_id = ? ORDER BY created_at ASC',
+        [task.id]
+      );
+      task.qa_log = qaRows;
+    }
 
     // Retrieve the number of active, unanswered Telegram escalations
     const [[{ pendingCount }]] = await pool.query(

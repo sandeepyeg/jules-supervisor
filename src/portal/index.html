@@ -1149,8 +1149,55 @@
 
   </div>
 
+  <!-- Task Detail Modal -->
+  <div id="task-detail-modal" class="modal-overlay" style="display: none;" onclick="closeTaskDetailModal(event)">
+    <div class="modal-card glass-card" style="max-width: 720px; width: 95%; max-height: 85vh; overflow-y: auto;" onclick="event.stopPropagation()">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem; border-bottom: 1px solid rgba(255,255,255,0.07); padding-bottom: 1rem;">
+        <div>
+          <div id="tdm-badge" style="display:inline-block; font-size:0.7rem; padding: 0.15rem 0.5rem; border-radius: 20px; margin-bottom: 0.4rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;"></div>
+          <h3 id="tdm-title" style="margin: 0; font-size: 1.1rem; color: var(--text-main);"></h3>
+          <p id="tdm-meta" style="margin: 0.25rem 0 0; font-size: 0.75rem; color: var(--text-muted);"></p>
+        </div>
+        <button type="button" class="btn btn-secondary" onclick="document.getElementById('task-detail-modal').style.display='none'" style="padding: 0.15rem 0.45rem; font-size: 0.75rem; border-color: rgba(255,255,255,0.1); margin: 0; flex-shrink:0;">✕</button>
+      </div>
+
+      <!-- Description -->
+      <div style="margin-bottom: 1rem;">
+        <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em;">Jules Prompt / Description</label>
+        <pre id="tdm-description" style="margin: 0.35rem 0 0; white-space: pre-wrap; font-size: 0.82rem; background: rgba(0,0,0,0.2); padding: 0.75rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); color: var(--text-main); font-family: inherit;"></pre>
+      </div>
+
+      <!-- Jules Notes -->
+      <div id="tdm-notes-wrap" style="margin-bottom: 1rem; display: none;">
+        <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em;">Jules Context Notes</label>
+        <pre id="tdm-notes" style="margin: 0.35rem 0 0; white-space: pre-wrap; font-size: 0.82rem; background: rgba(0,0,0,0.2); padding: 0.75rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); color: var(--text-main); font-family: inherit;"></pre>
+      </div>
+
+      <!-- Meta chips -->
+      <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem;">
+        <div id="tdm-mode" style="font-size: 0.78rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 0.25rem 0.6rem;"></div>
+        <div id="tdm-session-wrap" style="font-size: 0.78rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 0.25rem 0.6rem; display: none;">
+          🆔 Session: <code id="tdm-session" style="font-size: 0.75rem;"></code>
+        </div>
+        <a id="tdm-pr-link" href="#" target="_blank" style="font-size: 0.78rem; background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.3); border-radius: 6px; padding: 0.25rem 0.6rem; color: #818cf8; text-decoration: none; display: none;">🔗 View PR</a>
+      </div>
+
+      <!-- Q&A Thread -->
+      <div>
+        <label style="font-size: 0.75rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; display: flex; align-items: center; gap: 0.5rem;">
+          Q&amp;A Log
+          <span id="tdm-qa-count" style="background: rgba(99,102,241,0.15); color: #818cf8; border-radius: 20px; padding: 0.05rem 0.45rem; font-size: 0.68rem;">0</span>
+        </label>
+        <div id="tdm-qa-log" style="margin-top: 0.5rem;">
+          <p style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">No Q&amp;A interactions yet.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Add Task Modal -->
   <div id="add-task-modal" class="modal-overlay" style="display: none;">
+
     <div class="modal-card glass-card">
       <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.25rem;">
         <h3 style="margin: 0; font-size: 1.1rem; color: var(--text-main);">Add Task to Active Phase</h3>
@@ -1869,9 +1916,12 @@
             controlButtons += `</div>`;
           }
 
+          // Cache task data for modal
+          _taskCache[task.id] = task;
+
           item.innerHTML = `
             <div class="timeline-dot timeline-dot-${task.status}"></div>
-            <div class="task-status-card" onclick="toggleTaskCardDetails(${task.id}, event)">
+            <div class="task-status-card" onclick="toggleTaskCardDetails(${task.id}, event)" title="Click for full details" style="cursor: pointer;">
               <div style="display: flex; justify-content: space-between; align-items: flex-start; width: 100%;">
                 <div class="task-status-info" style="flex: 1;">
                   <h4>
@@ -1879,31 +1929,12 @@
                     <span>${task.title}</span>
                     ${retryContent}
                   </h4>
-                  <p style="margin-top: 0.1rem; font-size: 0.75rem; color: var(--text-muted);">ID: ${task.id} ${statusDetailText}</p>
+                  <p style="margin-top: 0.1rem; font-size: 0.75rem; color: var(--text-muted);">ID: ${task.id} ${statusDetailText} ${(task.qa_log||[]).length > 0 ? `· 💬 ${task.qa_log.length} Q&A` : ''}</p>
                 </div>
                 <div class="task-status-actions" style="margin-left: 1rem; flex-shrink: 0; display: flex; align-items: flex-end; flex-direction: column; gap: 0.4rem;">
                   <span class="badge badge-${task.status}">${task.status}</span>
                   ${actionContent}
                 </div>
-              </div>
-              
-              <div id="task-card-details-${task.id}" class="task-card-details" style="display: none; margin-top: 0.75rem; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 0.75rem; font-size: 0.8rem; color: var(--text-muted);">
-                <div style="margin-bottom: 0.5rem;">
-                  <strong style="color: var(--text-main); display: block; margin-bottom: 0.15rem;">Description:</strong>
-                  <p style="margin: 0; white-space: pre-wrap; background: rgba(0,0,0,0.15); padding: 0.5rem; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.03);">${task.description || 'No description provided.'}</p>
-                </div>
-                ${task.jules_notes ? `
-                <div style="margin-bottom: 0.5rem;">
-                  <strong style="color: var(--text-main); display: block; margin-bottom: 0.15rem;">Jules Guidelines:</strong>
-                  <p style="margin: 0; white-space: pre-wrap; background: rgba(0,0,0,0.15); padding: 0.5rem; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.03);">${task.jules_notes}</p>
-                </div>
-                ` : ''}
-                <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.5rem; margin-bottom: 0.5rem;">
-                  <div><strong style="color: var(--text-main);">Mode:</strong> ${task.mode === 'ai_assisted' ? '🤖 AI Assisted' : '👤 Manual'}</div>
-                  ${task.jules_session_id ? `<div><strong style="color: var(--text-main);">Session ID:</strong> <code>${task.jules_session_id}</code></div>` : ''}
-                </div>
-                ${depTags}
-                ${controlButtons}
               </div>
             </div>
           `;
@@ -2073,16 +2104,108 @@
       }
     }
 
+    // Badge colours per status
+    const STATUS_COLORS = {
+      queued:         { bg: 'rgba(100,100,120,0.25)', color: '#9ca3af' },
+      running:        { bg: 'rgba(99,102,241,0.2)',   color: '#818cf8' },
+      waiting_answer: { bg: 'rgba(245,158,11,0.2)',   color: '#fbbf24' },
+      pr_open:        { bg: 'rgba(59,130,246,0.2)',   color: '#60a5fa' },
+      merged:         { bg: 'rgba(16,185,129,0.2)',   color: '#34d399' },
+      failed:         { bg: 'rgba(239,68,68,0.2)',    color: '#f87171' },
+      skipped:        { bg: 'rgba(100,100,120,0.2)',  color: '#6b7280' },
+    };
+
+    // Map of task data cached during last poll (keyed by task id)
+    const _taskCache = {};
+
     function toggleTaskCardDetails(taskId, event) {
       if (event && (event.target.tagName === 'BUTTON' || event.target.tagName === 'A' || event.target.closest('button') || event.target.closest('a'))) {
         return;
       }
-      const elem = document.getElementById(`task-card-details-${taskId}`);
-      if (elem) {
-        const isHidden = elem.style.display === 'none';
-        elem.style.display = isHidden ? 'block' : 'none';
+      openTaskDetailModal(taskId);
+    }
+
+    function openTaskDetailModal(taskId) {
+      const task = _taskCache[taskId];
+      if (!task) return;
+
+      const sc = STATUS_COLORS[task.status] || STATUS_COLORS.queued;
+
+      // Badge
+      const badge = document.getElementById('tdm-badge');
+      badge.textContent = task.status.replace('_', ' ');
+      badge.style.background = sc.bg;
+      badge.style.color = sc.color;
+      badge.style.border = `1px solid ${sc.color}44`;
+
+      document.getElementById('tdm-title').textContent = task.title;
+      document.getElementById('tdm-meta').textContent =
+        `Task #${task.id}  ·  Created ${new Date(task.created_at).toLocaleString()}${task.updated_at ? '  ·  Updated ' + new Date(task.updated_at).toLocaleString() : ''}`;
+
+      document.getElementById('tdm-description').textContent = task.description || 'No description provided.';
+
+      const notesWrap = document.getElementById('tdm-notes-wrap');
+      if (task.jules_notes) {
+        notesWrap.style.display = 'block';
+        document.getElementById('tdm-notes').textContent = task.jules_notes;
+      } else {
+        notesWrap.style.display = 'none';
+      }
+
+      document.getElementById('tdm-mode').textContent = task.mode === 'ai_assisted' ? '🤖 AI-Assisted' : '👤 Manual';
+
+      const sessionWrap = document.getElementById('tdm-session-wrap');
+      if (task.jules_session_id) {
+        sessionWrap.style.display = 'block';
+        document.getElementById('tdm-session').textContent = task.jules_session_id;
+      } else {
+        sessionWrap.style.display = 'none';
+      }
+
+      const prLink = document.getElementById('tdm-pr-link');
+      if (task.pr_url) {
+        prLink.style.display = 'inline-block';
+        prLink.href = task.pr_url;
+        prLink.textContent = `🔗 View PR #${task.pr_number || ''}`;
+      } else {
+        prLink.style.display = 'none';
+      }
+
+      // Q&A log
+      const qaLog = task.qa_log || [];
+      document.getElementById('tdm-qa-count').textContent = qaLog.length;
+      const qaContainer = document.getElementById('tdm-qa-log');
+      if (qaLog.length === 0) {
+        qaContainer.innerHTML = '<p style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">No Q&amp;A interactions yet.</p>';
+      } else {
+        const ANSWERED_BY_LABELS = { gemini: '🤖 Gemini', deepseek: '🤖 DeepSeek', telegram: '👤 You (Telegram)', system: '⚙️ System' };
+        qaContainer.innerHTML = qaLog.map((qa, i) => `
+          <div style="margin-bottom: 0.85rem; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.06);">
+            <div style="background: rgba(0,0,0,0.25); padding: 0.6rem 0.75rem;">
+              <div style="font-size: 0.68rem; color: var(--text-muted); margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">Jules asked · #${i + 1}</div>
+              <p style="margin: 0; font-size: 0.82rem; color: var(--text-main); white-space: pre-wrap;">${escapeHtml(qa.jules_question)}</p>
+            </div>
+            <div style="background: rgba(99,102,241,0.07); padding: 0.6rem 0.75rem; border-top: 1px solid rgba(255,255,255,0.05);">
+              <div style="font-size: 0.68rem; color: #818cf8; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.05em;">${ANSWERED_BY_LABELS[qa.answered_by] || qa.answered_by} answered${qa.confidence_score != null ? ' · confidence ' + Math.round(qa.confidence_score * 100) + '%' : ''}</div>
+              <p style="margin: 0; font-size: 0.82rem; color: var(--text-main); white-space: pre-wrap;">${escapeHtml(qa.answer)}</p>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      document.getElementById('task-detail-modal').style.display = 'flex';
+    }
+
+    function closeTaskDetailModal(event) {
+      if (!event || event.target === document.getElementById('task-detail-modal')) {
+        document.getElementById('task-detail-modal').style.display = 'none';
       }
     }
+
+    function escapeHtml(str) {
+      return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
 
     function openAddTaskModal() {
       const modal = document.getElementById('add-task-modal');

@@ -50,6 +50,15 @@ if (!token || token.startsWith('your_')) {
       bot.startPolling();
       console.log('Telegram Bot configured for Long-Polling mode.');
     }
+
+    // Silence 409 Conflict spams cleanly
+    bot.on('polling_error', (error) => {
+      if (error.message && error.message.includes('409 Conflict')) {
+        console.log('Telegram Bot: Connection conflict (409) detected during watch restart. Suppressing trace logs; retrying...');
+      } else {
+        console.error('Telegram Bot Polling Error:', error);
+      }
+    });
   }
 
   bot.on('message', (msg) => {

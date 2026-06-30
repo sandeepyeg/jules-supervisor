@@ -1638,6 +1638,7 @@
 
         const data = await response.json();
         activePhaseId = data.phaseId;
+        localStorage.removeItem('jules_phase_draft');
         
         document.getElementById('phase-creation-card').style.display = 'none';
         
@@ -2205,30 +2206,28 @@
     }
 
     function resetToDraft() {
-      if (confirm('Exit active phase view? Server execution will continue in the background.')) {
-        if (pollInterval) clearInterval(pollInterval);
-        if (qaInterval) clearInterval(qaInterval);
-        
-        activePhaseId = null;
-        document.getElementById('active-add-task-btn').style.display = 'none';
-        document.getElementById('phase-active-card').style.display = 'none';
-        document.getElementById('phase-creation-card').style.display = 'block';
-        
-        document.getElementById('polling-health-box').innerText = 'OFFLINE';
-        document.getElementById('polling-health-box').style.color = 'var(--neutral)';
-        document.getElementById('escalation-count-box').innerText = '0';
-        document.getElementById('escalation-count-box').style.color = 'var(--neutral)';
-        document.getElementById('escalation-reminder-text').style.display = 'none';
-        
-        // Reset topbar active phase pill
-        const topbarPill = document.getElementById('topbar-phase-status');
-        if (topbarPill) topbarPill.style.display = 'none';
-        const phaseSelector = document.getElementById('phase-selector');
-        if (phaseSelector) phaseSelector.value = '';
+      if (pollInterval) clearInterval(pollInterval);
+      if (qaInterval) clearInterval(qaInterval);
+      
+      activePhaseId = null;
+      document.getElementById('active-add-task-btn').style.display = 'none';
+      document.getElementById('phase-active-card').style.display = 'none';
+      document.getElementById('phase-creation-card').style.display = 'block';
+      
+      document.getElementById('polling-health-box').innerText = 'OFFLINE';
+      document.getElementById('polling-health-box').style.color = 'var(--neutral)';
+      document.getElementById('escalation-count-box').innerText = '0';
+      document.getElementById('escalation-count-box').style.color = 'var(--neutral)';
+      document.getElementById('escalation-reminder-text').style.display = 'none';
+      
+      // Reset topbar active phase pill
+      const topbarPill = document.getElementById('topbar-phase-status');
+      if (topbarPill) topbarPill.style.display = 'none';
+      const phaseSelector = document.getElementById('phase-selector');
+      if (phaseSelector) phaseSelector.value = '';
 
-        loadFormDraft();
-        switchScreen('setup');
-      }
+      loadFormDraft();
+      switchScreen('setup');
     }
 
     async function loadPhasesList() {

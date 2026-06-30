@@ -65,6 +65,18 @@ if (!token || token.startsWith('your_')) {
       });
     }
   });
+
+  // Clean shutdown on process exit to avoid 409 conflict on node --watch restarts
+  const cleanExit = async () => {
+    try {
+      if (bot && typeof bot.stopPolling === 'function') {
+        await bot.stopPolling();
+      }
+    } catch (e) {}
+    process.exit(0);
+  };
+  process.once('SIGINT', cleanExit);
+  process.once('SIGTERM', cleanExit);
 }
 
 export { bot };

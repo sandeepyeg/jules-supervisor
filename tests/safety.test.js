@@ -10,6 +10,7 @@ import * as github from '../src/services/github.js';
 import * as jules from '../src/services/jules.js';
 import { reloadConfig } from '../src/core/config.js';
 import tasksRouter from '../src/api/tasks.js';
+import phasesRouter from '../src/api/phases.js';
 import { getPortalSecret } from '../src/api/auth.js';
 
 test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
@@ -591,5 +592,90 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     // Confirm Telegram was notified correctly
     assert.ok(sentTelegramMessages.length > 0);
     assert.ok(sentTelegramMessages[0].text.includes('Phase complete. Review branch feature/phase-10. Human should manually create/review/merge final PR into main.'));
+  });
+
+  await t.test('GET /api/phases/github/branches lists branches and fallback list', async () => {
+    // 1. Unauthorized request
+    let req = {
+      method: 'GET',
+      url: '/github/branches',
+      headers: {}
+    };
+    let responseStatus = null;
+    let responseBody = null;
+    let res = {
+      status(code) { responseStatus = code; return this; },
+      json(data) { responseBody = data; return this; }
+    };
+    
+    await new Promise((resolve) => {
+      phasesRouter(req, res, () => {
+        resolve();
+      });
+    });
+    
+    assert.strictEqual(responseStatus, 401);
+    
+    // 2. Authorized request
+    req.headers['x-portal-key'] = getPortalSecret();
+    await new Promise((resolve) => {
+      const origJson = res.json;
+      res.json = (data) => {
+        origJson.call(res, data);
+        resolve();
+        return res;
+      };
+      phasesRouter(req, res, () => {
+        resolve();
+      });
+    });
+    
+    assert.strictEqual(responseStatus, null); // meaning it ran and returned json successfully
+    assert.ok(Array.isArray(responseBody));
+    assert.ok(responseBody.includes('main'));
+  });
+
+  await t.test('POST /api/phases/:id/tasks appends a task to an active phase', async () => {
+    // 1. Authorized insertion
+    let req = {
+      method: 'POST',
+      url: `/${phaseId}/tasks`,
+      params: { id: String(phaseId) },
+      headers: { 'x-portal-key': getPortalSecret() },
+      body: {
+        title: 'New Dynamic Task',
+        description: 'Dynamically added description',
+        jules_notes: 'Notes',
+        mode: 'ai_assisted',
+        depends_on: []
+      }
+    };
+    
+    let responseStatus = null;
+    let responseBody = null;
+    let res = {
+      status(code) { responseStatus = code; return this; },
+      json(data) { responseBody = data; return this; }
+    };
+    
+    await new Promise((resolve) => {
+      const origJson = res.json;
+      res.json = (data) => {
+        origJson.call(res, data);
+        resolve();
+        return res;
+      };
+      phasesRouter(req, res, () => {
+        resolve();
+      });
+    });
+    
+    assert.strictEqual(responseStatus, 201);
+    assert.ok(responseBody.taskId);
+    
+    // Verify it is appended in database
+    const [tasks] = await pool.query('SELECT * FROM tasks WHERE id = ?', [responseBody.taskId]);
+    assert.strictEqual(tasks[0].title, 'New Dynamic Task');
+    assert.strictEqual(tasks[0].phase_id, phaseId);
   });
 });

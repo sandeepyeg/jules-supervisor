@@ -120,7 +120,15 @@ router.post('/:id/start', portalAuth, async (req, res) => {
       return res.status(400).json({ error: 'Phase is already started or completed' });
     }
 
-    const branchName = `feature/phase-${phaseId}`;
+    // Generate a unique, meaningful branch name from the phase title + short timestamp
+    const titleSlug = (phase.title || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')   // non-alphanumeric → dash
+      .replace(/^-+|-+$/g, '')        // trim leading/trailing dashes
+      .substring(0, 40)               // max 40 chars
+      || `phase-${phaseId}`;
+    const shortTs = Date.now().toString(36).slice(-5); // e.g. "a3f2k"
+    const branchName = `feature/${titleSlug}-${shortTs}`;
     console.log(`Creating branch ${branchName} from ${phase.main_branch}...`);
     
     // Create github branch

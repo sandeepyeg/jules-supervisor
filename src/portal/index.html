@@ -2038,7 +2038,15 @@
           headers: getHeaders()
         });
         if (!response.ok) throw new Error('Fetch failed');
-        const branches = await response.json();
+        let branches = await response.json();
+
+        // Sort: main first, master second, rest alphabetically
+        const priority = ['main', 'master'];
+        branches = [
+          ...priority.filter(b => branches.includes(b)),
+          ...branches.filter(b => !priority.includes(b)).sort()
+        ];
+
         dropdown.innerHTML = '';
         branches.forEach(branch => {
           const option = document.createElement('option');
@@ -2046,15 +2054,19 @@
           option.innerText = branch;
           dropdown.appendChild(option);
         });
+
+        // Always default to main, then master
         if (branches.includes('main')) {
           dropdown.value = 'main';
         } else if (branches.includes('master')) {
           dropdown.value = 'master';
+        } else if (branches.length > 0) {
+          dropdown.value = branches[0];
         }
       } catch (err) {
         console.error('Error loading branches:', err);
         dropdown.innerHTML = `
-          <option value="main">main</option>
+          <option value="main" selected>main</option>
           <option value="master">master</option>
           <option value="dev">dev</option>
         `;

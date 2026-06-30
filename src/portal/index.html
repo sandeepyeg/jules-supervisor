@@ -1025,8 +1025,9 @@
     <!-- SCREEN 1: Planning Mode -->
     <div id="screen-setup" class="console-screen" style="display: block;">
       <div id="phase-creation-card" class="glass-card">
-        <div class="card-title">
+        <div class="card-title" style="display:flex; align-items:center; justify-content:space-between;">
           <h2>Create Running Phase</h2>
+          <button type="button" onclick="clearFormToFresh()" style="background:none;border:none;cursor:pointer;font-size:0.75rem;color:var(--accent-muted,#888);text-decoration:underline;padding:0;" title="Wipe the form and start a new blank phase">Clear &amp; start fresh</button>
         </div>
         
         <form id="phase-form">
@@ -1267,6 +1268,16 @@
       } else {
         addTaskItem();
       }
+    };
+
+    // Clears localStorage draft and resets to a completely blank new-phase form
+    const clearFormToFresh = () => {
+      localStorage.removeItem('jules_phase_draft');
+      document.getElementById('phase-title').value = '';
+      document.getElementById('phase-description').value = '';
+      tasksList = [];
+      selectedTaskIndex = 0;
+      addTaskItem();
     };
 
     // --- TASK EDITOR LOGIC ---
@@ -2226,7 +2237,7 @@
       const phaseSelector = document.getElementById('phase-selector');
       if (phaseSelector) phaseSelector.value = '';
 
-      loadFormDraft();
+      clearFormToFresh();
       switchScreen('setup');
     }
 
@@ -2291,7 +2302,6 @@
           document.getElementById('lock-screen').style.display = 'none';
           document.getElementById('dashboard-wrapper').style.display = 'block';
           setSystemStatus(true);
-          loadFormDraft();
           await loadPhasesList();
         } else {
           setSystemStatus(false);
@@ -2332,7 +2342,6 @@
           document.getElementById('lock-screen').style.display = 'none';
           document.getElementById('dashboard-wrapper').style.display = 'block';
           
-          loadFormDraft();
           await loadPhasesList();
         } else {
           errorMsg.style.display = 'block';

@@ -31,6 +31,10 @@ router.patch('/:id', portalAuth, async (req, res) => {
   const taskId = parseInt(req.params.id, 10);
   const { status, ...extra } = req.body;
 
+  if (status === 'merged') {
+    return res.status(400).json({ error: 'Use POST /api/tasks/:id/mark-merged so GitHub PR verification is enforced.' });
+  }
+
   try {
     const task = await queries.getTask(taskId);
     if (!task) {
@@ -108,9 +112,11 @@ router.post('/:id/mark-merged', portalAuth, async (req, res) => {
     }
 
     // State/Merged validation check
-    const isMerged = pr.merged === true || pr.state === 'closed';
-    if (!isMerged) {
-      return res.status(400).json({ error: 'PR is not merged yet on GitHub' });
+    if (pr.merged !== true) {
+      if (pr.state === 'closed') {
+        return res.status(400).json({ error: 'PR is closed but was not merged.' });
+      }
+      return res.status(400).json({ error: 'PR is not merged yet on GitHub.' });
     }
 
     // Mark task as merged

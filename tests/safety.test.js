@@ -31,6 +31,7 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
   let mockPRBase = 'main';
   let mockPRMergeable = true;
   let mockPRMerged = true;
+  let mockPRState = 'open';
   let mockPRChecksState = 'passing';
   let approveCalled = false;
   let mergeCalled = false;
@@ -96,7 +97,7 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
             html_url: 'https://github.com/mock/pull/101',
             base: { ref: mockPRBase },
             head: { ref: 'feature/task-1', sha: 'sha123' },
-            state: 'open',
+            state: mockPRState,
             merged: mockPRMerged,
             mergeable: mockPRMergeable,
             changed_files: mockPRFiles.length,
@@ -489,6 +490,80 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
 
     const t2 = await queries.getTask(task2Id);
     assert.strictEqual(t2.status, 'running');
+  });
+
+  await t.test('manual mark-merged rejects closed but unmerged PR', async () => {
+    mockPRBase = 'feature/phase-10';
+    mockPRMerged = false;
+    mockPRState = 'closed'; // PR was closed but not merged
+
+    await queries.updateTaskStatus(task1Id, 'pr_open', { pr_number: 101 });
+
+    const req = {
+      method: 'POST',
+      url: `/${task1Id}/mark-merged`,
+      params: { id: String(task1Id) },
+      headers: {
+        'x-portal-key': getPortalSecret()
+      }
+    };
+    let responseStatus = 200;
+    let responseBody = null;
+    const res = {
+      status(code) { responseStatus = code; return this; },
+      json(data) { responseBody = data; return this; }
+    };
+
+    await new Promise((resolve) => {
+      const origJson = res.json;
+      res.json = (data) => {
+        origJson.call(res, data);
+        resolve();
+        return res;
+      };
+      tasksRouter(req, res, () => {
+        resolve();
+      });
+    });
+
+    assert.strictEqual(responseStatus, 400);
+    assert.strictEqual(responseBody.error, 'PR is closed but was not merged.');
+
+    // Restore state
+    mockPRState = 'open';
+  });
+
+  await t.test('generic PATCH cannot mark task merged directly', async () => {
+    const req = {
+      method: 'PATCH',
+      url: `/${task1Id}`,
+      params: { id: String(task1Id) },
+      body: { status: 'merged' },
+      headers: {
+        'x-portal-key': getPortalSecret()
+      }
+    };
+    let responseStatus = 200;
+    let responseBody = null;
+    const res = {
+      status(code) { responseStatus = code; return this; },
+      json(data) { responseBody = data; return this; }
+    };
+
+    await new Promise((resolve) => {
+      const origJson = res.json;
+      res.json = (data) => {
+        origJson.call(res, data);
+        resolve();
+        return res;
+      };
+      tasksRouter(req, res, () => {
+        resolve();
+      });
+    });
+
+    assert.strictEqual(responseStatus, 400);
+    assert.strictEqual(responseBody.error, 'Use POST /api/tasks/:id/mark-merged so GitHub PR verification is enforced.');
   });
 
   await t.test('Phase completion does not merge into main', async () => {

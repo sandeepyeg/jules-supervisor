@@ -101,4 +101,8 @@ test('Task Dependency Resolution Logic with Dummy Data', async (t) => {
   });
 
   pool.query = originalQuery;
+  
+  t.after(async () => {
+    await pool.end();
+  });
 });

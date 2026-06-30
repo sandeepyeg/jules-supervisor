@@ -7,6 +7,7 @@ import * as taskManager from '../src/core/taskManager.js';
 import * as sessionHandler from '../src/core/sessionHandler.js';
 import * as questionHandler from '../src/core/questionHandler.js';
 import { bot } from '../src/services/telegram.js';
+import * as poller from '../src/core/poller.js';
 
 test('End-to-End Real World Supervisor Workflow Simulator', async (t) => {
   let phaseId = null;
@@ -143,7 +144,7 @@ test('End-to-End Real World Supervisor Workflow Simulator', async (t) => {
         };
       }
       // Get PR Files
-      if (checkUrl.includes('/pulls/') && checkUrl.endsWith('/files')) {
+      if (checkUrl.includes('/pulls/') && checkUrl.includes('/files')) {
         return {
           ok: true,
           json: async () => [{ filename: 'server.js' }]
@@ -236,6 +237,11 @@ test('End-to-End Real World Supervisor Workflow Simulator', async (t) => {
   t.after(async () => {
     bot.sendMessage = originalSendMessage;
     delete globalThis.__mockFetch;
+
+    // Stop background poller loop to prevent hanging
+    if (phaseId) {
+      poller.stopPoller(phaseId);
+    }
 
     // Stop Telegram polling loop to prevent process from hanging after tests
     if (bot.stopPolling) {

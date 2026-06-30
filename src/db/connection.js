@@ -27,90 +27,52 @@ export function resetInMemoryDb() {
 export function mockQuery(sql, params = []) {
   const sqlNormalized = sql.replace(/\s+/g, ' ').trim();
 
-  // INSERT INTO phases
-  if (sqlNormalized.startsWith('INSERT INTO phases')) {
-    const id = db_id_counter++;
-    const [title, description, status, main_branch] = params;
-    // Note: The E2E test inserts: INSERT INTO phases (title, description, status, main_branch) VALUES (?, ?, ?, ?)
-    // And phases router inserts: INSERT INTO phases (title, description, main_branch, status) VALUES (?, ?, ?, ?)
-    // We can extract columns or use positions based on the query.
-    let titleVal, descVal, mainVal, statusVal;
-    if (sqlNormalized.includes('(title, description, status, main_branch)')) {
-      [titleVal, descVal, statusVal, mainVal] = params;
-    } else {
-      [titleVal, descVal, mainVal, statusVal] = params;
-    }
-    const newPhase = {
-      id,
-      title: titleVal,
-      description: descVal || '',
-      main_branch: mainVal || 'main',
-      status: statusVal || 'draft',
-      phase_branch: null,
-      created_at: new Date(),
-      started_at: null,
-      completed_at: null
-    };
-    inMemoryDb.phases.push(newPhase);
-    return [{ insertId: id }];
-  }
-
-  // INSERT INTO tasks
-  if (sqlNormalized.startsWith('INSERT INTO tasks')) {
-    const id = db_id_counter++;
-    let phase_id, title, description, jules_notes, mode, status, sort_order, depends_on;
+  // Dynamic INSERT handler
+  if (sqlNormalized.startsWith('INSERT INTO')) {
+    const table = sqlNormalized.split('INSERT INTO')[1].split('(')[0].trim();
+    const colsPart = sqlNormalized.split('(')[1].split(')')[0];
+    const cols = colsPart.split(',').map(c => c.trim());
     
-    if (sqlNormalized.includes('(phase_id, title, description, mode, status, sort_order, depends_on)')) {
-      [phase_id, title, description, mode, status, sort_order, depends_on] = params;
-    } else if (sqlNormalized.includes('(phase_id, title, description, mode, status, sort_order)')) {
-      [phase_id, title, description, mode, status, sort_order] = params;
-    } else {
-      // API: INSERT INTO tasks (phase_id, title, description, jules_notes, mode, status, sort_order)
-      [phase_id, title, description, jules_notes, mode, sort_order] = params;
-      status = 'queued';
+    const id = db_id_counter++;
+    const newRecord = { id };
+    
+    cols.forEach((col, idx) => {
+      newRecord[col] = params[idx];
+    });
+
+    if (table === 'phases') {
+      if (newRecord.status === undefined) newRecord.status = 'draft';
+      if (newRecord.main_branch === undefined) newRecord.main_branch = 'main';
+      newRecord.phase_branch = newRecord.phase_branch || null;
+      newRecord.created_at = new Date();
+      newRecord.started_at = null;
+      newRecord.completed_at = null;
+      inMemoryDb.phases.push(newRecord);
+    } else if (table === 'tasks') {
+      newRecord.jules_notes = newRecord.jules_notes || null;
+      newRecord.mode = newRecord.mode || 'ai_assisted';
+      newRecord.status = newRecord.status || 'queued';
+      newRecord.depends_on = newRecord.depends_on || null;
+      newRecord.sort_order = newRecord.sort_order || 0;
+      newRecord.jules_session_id = null;
+      newRecord.pr_url = null;
+      newRecord.pr_number = null;
+      newRecord.last_activity_id = null;
+      newRecord.retry_count = 0;
+      newRecord.created_at = new Date();
+      newRecord.updated_at = new Date();
+      inMemoryDb.tasks.push(newRecord);
+    } else if (table === 'qa_log') {
+      newRecord.created_at = new Date();
+      inMemoryDb.qa_log.push(newRecord);
+    } else if (table === 'telegram_pending') {
+      newRecord.reminder_count = 0;
+      newRecord.last_reminder_at = new Date();
+      newRecord.resolved = 0;
+      newRecord.created_at = new Date();
+      inMemoryDb.telegram_pending.push(newRecord);
     }
-
-    const newTask = {
-      id,
-      phase_id,
-      title,
-      description,
-      jules_notes: jules_notes || null,
-      mode: mode || 'ai_assisted',
-      status: status || 'queued',
-      depends_on: depends_on || null,
-      sort_order: sort_order || 0,
-      jules_session_id: null,
-      pr_url: null,
-      pr_number: null,
-      last_activity_id: null,
-      retry_count: 0,
-      created_at: new Date(),
-      updated_at: new Date()
-    };
-    inMemoryDb.tasks.push(newTask);
-    return [{ insertId: id }];
-  }
-
-  // INSERT INTO qa_log
-  if (sqlNormalized.startsWith('INSERT INTO qa_log')) {
-    const id = db_id_counter++;
-    const [task_id, jules_question, answer, answered_by, confidence_score] = params;
-    const newLog = {
-      id, task_id, jules_question, answer, answered_by, confidence_score, created_at: new Date()
-    };
-    inMemoryDb.qa_log.push(newLog);
-    return [{ insertId: id }];
-  }
-
-  // INSERT INTO telegram_pending
-  if (sqlNormalized.startsWith('INSERT INTO telegram_pending')) {
-    const id = db_id_counter++;
-    const [task_id, jules_question, telegram_message_id] = params;
-    const newPending = {
-      id, task_id, jules_question, telegram_message_id, reminder_count: 0, last_reminder_at: new Date(), resolved: 0, created_at: new Date()
-    };
-    inMemoryDb.telegram_pending.push(newPending);
+    
     return [{ insertId: id }];
   }
 

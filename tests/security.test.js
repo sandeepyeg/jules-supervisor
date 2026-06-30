@@ -3,6 +3,7 @@ import assert from 'node:assert';
 import webhookRouter from '../src/api/webhook.js';
 import { getPortalSecret } from '../src/api/auth.js';
 import { securityBlocker } from '../src/api/securityBlocker.js';
+import { pool } from '../src/db/connection.js';
 
 test('Webhook Routing Security and Secret Matching', async (t) => {
   const mockRes = () => {
@@ -126,5 +127,9 @@ test('Security Request Blocker Middleware', async (t) => {
     await testBlock('/api/phases', null, false);
     await testBlock('/api/status/123', null, false);
     await testBlock('/api/webhook/telegram/some-secret-key', null, false);
+  });
+
+  t.after(async () => {
+    await pool.end();
   });
 });

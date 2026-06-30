@@ -67,7 +67,7 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
 
     // GitHub Mock
     if (checkUrl.includes('api.github.com')) {
-      if (checkUrl.includes('/pulls/') && checkUrl.endsWith('/files')) {
+      if (checkUrl.includes('/pulls/') && checkUrl.includes('/files')) {
         return {
           ok: true,
           json: async () => mockPRFiles
@@ -152,6 +152,10 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
   t.after(async () => {
     bot.sendMessage = originalSendMessage;
     delete globalThis.__mockFetch;
+    if (bot.stopPolling) {
+      await bot.stopPolling();
+    }
+    await pool.end();
   });
 
   await t.test('PR targeting main is blocked and Jules receives correction', async () => {

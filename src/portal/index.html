@@ -235,7 +235,8 @@
       font-weight: 500;
       outline: none;
       cursor: pointer;
-      width: 170px;
+      width: 260px;
+      max-width: 100%;
       transition: all 0.2s ease;
     }
 
@@ -930,6 +931,11 @@
       background: rgba(255, 255, 255, 0.04) !important;
       border-color: rgba(99, 102, 241, 0.25) !important;
     }
+
+    @keyframes skeleton-pulse {
+      0%  { opacity: 0.6; }
+      100% { opacity: 1; }
+    }
   </style>
 </head>
 <body>
@@ -1063,8 +1069,8 @@
             </div>
           </div>
 
-          <button type="submit" class="btn" style="width: 100%; font-size: 0.95rem; padding: 0.8rem;">
-            Save & Prepare Phase Draft
+          <button type="submit" id="save-draft-btn" class="btn" style="width: 100%; font-size: 0.95rem; padding: 0.8rem;">
+            💾 Save Draft &amp; Review →
           </button>
         </form>
       </div>
@@ -1085,7 +1091,7 @@
           <h3 id="active-phase-title">Phase Name</h3>
           <div class="phase-metadata" style="margin-top: 0.25rem;">
             <div>Status: <strong id="active-phase-status" class="badge">DRAFT</strong></div>
-            <div>Branch: <strong id="active-phase-branch">N/A</strong></div>
+            <div>Branch: <a id="active-phase-branch" href="#" target="_blank" style="color: #818cf8; text-decoration: none; font-weight: 600;" onclick="return this.href !== '#'">N/A</a></div>
           </div>
           <div id="phase-progress-container" style="margin-top: 0.75rem; display: none;">
             <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.25rem;">
@@ -1104,11 +1110,31 @@
           </button>
         </div>
 
-        <div style="font-size: 0.9rem; font-weight: 600; margin-bottom: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.3rem; color: var(--text-muted);">
-          Task Execution Timeline
+        <!-- Jules waiting_answer alert banner -->
+        <div id="jules-waiting-banner" style="display: none; margin-bottom: 0.75rem; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.3); border-radius: 8px; padding: 0.65rem 1rem; display: none; align-items: center; justify-content: space-between; gap: 0.75rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: #fbbf24;">
+            <span style="font-size: 1rem;">🔔</span>
+            <strong>Jules is waiting for your input</strong> — answer the question to unblock the task
+          </div>
+          <button onclick="switchScreen('logs')" style="background: rgba(245,158,11,0.15); border: 1px solid rgba(245,158,11,0.35); color: #fbbf24; border-radius: 6px; padding: 0.25rem 0.65rem; font-size: 0.75rem; font-weight: 600; cursor: pointer;">View Q&amp;A Console →</button>
+        </div>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 0.3rem;">
+          <span style="font-size: 0.9rem; font-weight: 600; color: var(--text-muted);">Task Execution Timeline</span>
+          <button onclick="pollStatus()" style="background: none; border: 1px solid rgba(255,255,255,0.08); color: var(--text-muted); border-radius: 6px; padding: 0.2rem 0.55rem; font-size: 0.72rem; cursor: pointer;" title="Manually refresh task statuses">⟳ Refresh</button>
         </div>
         <div class="timeline-container" id="active-tasks-timeline">
-          <!-- Populated by poller -->
+          <!-- skeleton shown until first poll -->
+          <div id="timeline-skeleton" style="padding: 0.5rem 0;">
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; opacity: 0.4;">
+              <div style="width: 12px; height: 12px; border-radius: 50%; background: rgba(255,255,255,0.15); flex-shrink: 0;"></div>
+              <div style="height: 52px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.05); border-radius: 10px; flex: 1; animation: skeleton-pulse 1.6s infinite alternate;"></div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; opacity: 0.25;">
+              <div style="width: 12px; height: 12px; border-radius: 50%; background: rgba(255,255,255,0.1); flex-shrink: 0;"></div>
+              <div style="height: 52px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.04); border-radius: 10px; flex: 1; animation: skeleton-pulse 1.6s 0.4s infinite alternate;"></div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1128,7 +1154,7 @@
           </div>
           <div style="flex: 1; background: rgba(10, 15, 26, 0.3); padding: 0.85rem; border-radius: 8px; text-align: center; border: 1px solid var(--glass-border);">
             <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Console Connection</div>
-            <div id="polling-health-box" style="font-size: 0.85rem; font-weight: 600; color: var(--neutral); margin-top: 0.65rem;">OFFLINE</div>
+            <div id="polling-health-box" style="font-size: 0.85rem; font-weight: 600; color: var(--neutral); margin-top: 0.65rem;">🚫 Not Running</div>
           </div>
         </div>
       </div>
@@ -1191,6 +1217,13 @@
         <div id="tdm-qa-log" style="margin-top: 0.5rem;">
           <p style="color: var(--text-muted); font-size: 0.8rem; font-style: italic;">No Q&amp;A interactions yet.</p>
         </div>
+      </div>
+
+      <!-- Modal Action Footer -->
+      <div id="tdm-actions" style="display: none; margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.07); display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-end;">
+        <button id="tdm-retry-btn" onclick="retryTask(window._tdmTaskId); document.getElementById('task-detail-modal').style.display='none';" style="display:none; padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; border-radius: 7px; border: 1px solid rgba(99,102,241,0.35); background: rgba(99,102,241,0.1); color: #818cf8; cursor: pointer;">🔄 Retry</button>
+        <button id="tdm-skip-btn" onclick="skipTask(window._tdmTaskId); document.getElementById('task-detail-modal').style.display='none';" style="display:none; padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; border-radius: 7px; border: 1px solid rgba(239,68,68,0.3); background: rgba(239,68,68,0.06); color: #f87171; cursor: pointer;">⏭ Skip</button>
+        <button id="tdm-merge-btn" onclick="markTaskMerged(window._tdmTaskId); document.getElementById('task-detail-modal').style.display='none';" style="display:none; padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; border-radius: 7px; border: 1px solid rgba(16,185,129,0.35); background: rgba(16,185,129,0.08); color: #34d399; cursor: pointer;">✅ Mark Merged</button>
       </div>
     </div>
   </div>
@@ -1749,15 +1782,11 @@
         }
 
         await pollStatus();
-        
-        if (pollInterval) clearInterval(pollInterval);
-        pollInterval = setInterval(pollStatus, 10000);
-        document.getElementById('polling-health-box').innerText = 'RUNNING (10s)';
-        document.getElementById('polling-health-box').style.color = 'var(--success)';
+        scheduleAdaptivePoll();
 
         await updateQALog();
         if (qaInterval) clearInterval(qaInterval);
-        qaInterval = setInterval(updateQALog, 10000);
+        qaInterval = setInterval(updateQALog, 15000);
 
       } catch (err) {
         console.error(err);
@@ -1792,6 +1821,19 @@
       }
     }
 
+    // Adaptive polling: 30s when tasks are active, 5min when idle
+    function scheduleAdaptivePoll() {
+      if (pollInterval) clearInterval(pollInterval);
+      const activeTasks = Object.values(_taskCache).filter(t => t.status === 'running' || t.status === 'waiting_answer');
+      const intervalMs = activeTasks.length > 0 ? 30000 : 300000;
+      pollInterval = setInterval(() => {
+        pollStatus().then(() => scheduleAdaptivePoll());
+      }, intervalMs);
+      const label = activeTasks.length > 0 ? '⏱ Polling (30s)' : '⏱ Polling (5m)';
+      document.getElementById('polling-health-box').innerText = label;
+      document.getElementById('polling-health-box').style.color = 'var(--success)';
+    }
+
     async function pollStatus() {
       if (!activePhaseId) return;
 
@@ -1820,7 +1862,22 @@
           topbarBadge.className = `badge badge-${data.phase.status}`;
         }
 
-        document.getElementById('active-phase-branch').innerText = data.phase.phase_branch || 'N/A';
+        // Make branch a clickable GitHub link
+        const branchEl = document.getElementById('active-phase-branch');
+        const branchName = data.phase.phase_branch;
+        if (branchName) {
+          branchEl.textContent = branchName;
+          const cfg = window._ghConfig || {};
+          if (cfg.githubOwner && cfg.githubRepo) {
+            branchEl.href = `https://github.com/${cfg.githubOwner}/${cfg.githubRepo}/tree/${branchName}`;
+            branchEl.title = 'View branch on GitHub';
+          } else {
+            branchEl.removeAttribute('href');
+          }
+        } else {
+          branchEl.textContent = 'N/A (Draft)';
+          branchEl.removeAttribute('href');
+        }
 
         // Update escalation notification count & badge dot
         document.getElementById('escalation-count-box').innerText = data.unresolvedPendingCount;
@@ -1835,19 +1892,28 @@
           alertBadge.style.display = 'none';
         }
 
-        // Render progress bar
+        // Render progress bar — weighted: merged=100%, pr_open=75%, running=40%, queued=0%, skipped=100%
         const progressContainer = document.getElementById('phase-progress-container');
         if (data.tasks && data.tasks.length > 0) {
           progressContainer.style.display = 'block';
+          const WEIGHT = { queued: 0, running: 0.4, waiting_answer: 0.4, pr_open: 0.75, merged: 1, skipped: 1, failed: 0 };
+          const totalWeight = data.tasks.reduce((s, t) => s + (WEIGHT[t.status] ?? 0), 0);
+          const pct = Math.round((totalWeight / data.tasks.length) * 100);
           const completedTasks = data.tasks.filter(t => t.status === 'merged' || t.status === 'skipped').length;
-          const pct = Math.round((completedTasks / data.tasks.length) * 100);
           document.getElementById('phase-progress-text').innerText = `${pct}% (${completedTasks}/${data.tasks.length} tasks complete)`;
           document.getElementById('phase-progress-bar').style.width = `${pct}%`;
         } else {
           progressContainer.style.display = 'none';
         }
 
+        // Show/hide the Jules waiting banner
+        const waitingBanner = document.getElementById('jules-waiting-banner');
+        const hasWaiting = data.tasks.some(t => t.status === 'waiting_answer');
+        waitingBanner.style.display = hasWaiting ? 'flex' : 'none';
+
         // Render timeline graph
+        const skeleton = document.getElementById('timeline-skeleton');
+        if (skeleton) skeleton.remove();
         const timeline = document.getElementById('active-tasks-timeline');
         timeline.innerHTML = '';
 
@@ -1943,8 +2009,12 @@
 
         if (data.phase.status === 'complete' || data.phase.status === 'failed') {
           clearInterval(pollInterval);
-          document.getElementById('polling-health-box').innerText = 'COMPLETED';
-          document.getElementById('polling-health-box').style.color = 'var(--neutral)';
+          pollInterval = null;
+          const isDone = data.phase.status === 'complete';
+          document.getElementById('polling-health-box').innerText = isDone ? '✅ Phase Complete' : '❌ Phase Failed';
+          document.getElementById('polling-health-box').style.color = isDone ? 'var(--success)' : 'var(--danger)';
+        } else {
+          scheduleAdaptivePoll();
         }
 
       } catch (err) {
@@ -2129,6 +2199,9 @@
       const task = _taskCache[taskId];
       if (!task) return;
 
+      // Store for action buttons
+      window._tdmTaskId = taskId;
+
       const sc = STATUS_COLORS[task.status] || STATUS_COLORS.queued;
 
       // Badge
@@ -2166,7 +2239,7 @@
       if (task.pr_url) {
         prLink.style.display = 'inline-block';
         prLink.href = task.pr_url;
-        prLink.textContent = `🔗 View PR #${task.pr_number || ''}`;
+        prLink.textContent = `🔗 View PR #${task.pr_url.split('/').pop()}`;
       } else {
         prLink.style.display = 'none';
       }
@@ -2192,6 +2265,15 @@
           </div>
         `).join('');
       }
+
+      // Action buttons
+      const showRetry = ['failed', 'waiting_answer'].includes(task.status);
+      const showSkip  = ['running', 'waiting_answer', 'failed'].includes(task.status);
+      const showMerge = task.status === 'pr_open';
+      document.getElementById('tdm-retry-btn').style.display = showRetry ? 'inline-block' : 'none';
+      document.getElementById('tdm-skip-btn').style.display  = showSkip  ? 'inline-block' : 'none';
+      document.getElementById('tdm-merge-btn').style.display = showMerge ? 'inline-block' : 'none';
+      document.getElementById('tdm-actions').style.display = (showRetry || showSkip || showMerge) ? 'flex' : 'none';
 
       document.getElementById('task-detail-modal').style.display = 'flex';
     }
@@ -2360,7 +2442,7 @@
       document.getElementById('phase-active-card').style.display = 'none';
       document.getElementById('phase-creation-card').style.display = 'block';
       
-      document.getElementById('polling-health-box').innerText = 'OFFLINE';
+      document.getElementById('polling-health-box').innerText = '🚫 Not Running';
       document.getElementById('polling-health-box').style.color = 'var(--neutral)';
       document.getElementById('escalation-count-box').innerText = '0';
       document.getElementById('escalation-count-box').style.color = 'var(--neutral)';
@@ -2437,6 +2519,11 @@
           document.getElementById('lock-screen').style.display = 'none';
           document.getElementById('dashboard-wrapper').style.display = 'block';
           setSystemStatus(true);
+          // Fetch GitHub config for branch link building
+          fetch('/api/phases/config', { headers: getHeaders() })
+            .then(r => r.json())
+            .then(cfg => { window._ghConfig = cfg; })
+            .catch(() => {});
           await loadPhasesList();
           loadBranchesDropdown();
         } else {

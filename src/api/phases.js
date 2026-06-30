@@ -23,6 +23,17 @@ router.get('/', portalAuth, async (req, res) => {
 });
 
 /**
+ * GET /api/phases/config
+ * Exposes non-secret GitHub metadata for the frontend (owner/repo).
+ */
+router.get('/config', portalAuth, (req, res) => {
+  res.json({
+    githubOwner: process.env.GITHUB_OWNER || '',
+    githubRepo:  process.env.GITHUB_REPO  || '',
+  });
+});
+
+/**
  * POST /api/phases
  * Creates a new phase with a description and its associated tasks, mapping dependencies.
  */

@@ -2303,6 +2303,7 @@
           document.getElementById('dashboard-wrapper').style.display = 'block';
           setSystemStatus(true);
           await loadPhasesList();
+          loadBranchesDropdown();
         } else {
           setSystemStatus(false);
           showLockScreen();
@@ -2343,6 +2344,7 @@
           document.getElementById('dashboard-wrapper').style.display = 'block';
           
           await loadPhasesList();
+          loadBranchesDropdown();
         } else {
           errorMsg.style.display = 'block';
         }

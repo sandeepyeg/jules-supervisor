@@ -347,7 +347,7 @@ export async function createDraftPR(phaseBranch, mainBranch, title) {
  */
 export async function listBranches() {
   const repoUrl = getRepoUrl();
-  const url = `${repoUrl}/branches`;
+  const url = `${repoUrl}/branches?per_page=100`;
   const response = await fetch(url, {
     method: 'GET',
     headers: getHeaders()

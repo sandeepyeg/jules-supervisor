@@ -5,9 +5,8 @@ let activeSecret = process.env.PORTAL_SECRET;
 if (!activeSecret || activeSecret === 'choose_a_random_string') {
   activeSecret = crypto.randomBytes(16).toString('hex');
   console.warn(`\n[SECURITY] WARNING: PORTAL_SECRET is not configured in your .env file!`);
-  console.warn(`[SECURITY] A temporary secure session key has been generated for your protection:`);
-  console.warn(`\n           ===>  ${activeSecret}  <===\n`);
-  console.warn(`[SECURITY] Use this key to unlock the portal, or configure a persistent PORTAL_SECRET in .env.\n`);
+  console.warn(`[SECURITY] A temporary portal secret was generated for this process.`);
+  console.warn(`[SECURITY] Configure a persistent PORTAL_SECRET in .env before relying on the dashboard.\n`);
 }
 
 /**

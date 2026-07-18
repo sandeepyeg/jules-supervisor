@@ -609,6 +609,12 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     };
     
     await new Promise((resolve) => {
+      const origJson = res.json;
+      res.json = (data) => {
+        origJson.call(res, data);
+        resolve();
+        return res;
+      };
       phasesRouter(req, res, () => {
         resolve();
       });
@@ -618,6 +624,8 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     
     // 2. Authorized request
     req.headers['x-portal-key'] = getPortalSecret();
+    responseStatus = null;
+    responseBody = null;
     await new Promise((resolve) => {
       const origJson = res.json;
       res.json = (data) => {

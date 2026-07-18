@@ -34,6 +34,22 @@ router.get('/config', portalAuth, (req, res) => {
 });
 
 /**
+ * GET /api/phases/github/branches
+ * Returns a list of branch names in the repository.
+ */
+router.get('/github/branches', portalAuth, async (req, res) => {
+  try {
+    const branches = await github.listBranches();
+    const names = branches.map(b => b.name);
+    res.json(names);
+  } catch (error) {
+    console.error('Error listing branches:', error);
+    // If GitHub token is mock/placeholder, fallback to standard list
+    res.json(['main', 'master', 'dev', 'feature/phase-1']);
+  }
+});
+
+/**
  * POST /api/phases
  * Creates a new phase with a description and its associated tasks, mapping dependencies.
  */
@@ -211,22 +227,6 @@ router.get('/:id/qalog', portalAuth, async (req, res) => {
   } catch (error) {
     console.error('Error fetching Phase QA Log:', error);
     res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * GET /api/phases/github/branches
- * Returns a list of branch names in the repository.
- */
-router.get('/github/branches', portalAuth, async (req, res) => {
-  try {
-    const branches = await github.listBranches();
-    const names = branches.map(b => b.name);
-    res.json(names);
-  } catch (error) {
-    console.error('Error listing branches:', error);
-    // If GitHub token is mock/placeholder, fallback to standard list
-    res.json(['main', 'master', 'dev', 'feature/phase-1']);
   }
 });
 

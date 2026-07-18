@@ -139,7 +139,7 @@ export async function setupWebhook(appUrl) {
   if (bot.setWebHook) {
     const webhookSecret = getPortalSecret();
     const hookUrl = `${appUrl}/api/webhook/telegram/${webhookSecret}`;
-    console.log(`Setting Telegram Webhook to: ${hookUrl}`);
+    console.log(`Setting Telegram Webhook to ${appUrl}/api/webhook/telegram/[redacted]`);
     await bot.setWebHook(hookUrl);
   }
 }

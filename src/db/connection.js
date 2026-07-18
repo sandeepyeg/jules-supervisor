@@ -108,6 +108,15 @@ export function mockQuery(sql, params = []) {
     return [inMemoryDb.tasks.filter(t => t.phase_id === params[0] && ['running', 'waiting_answer', 'pr_open'].includes(t.status))];
   }
 
+  // SELECT MAX(sort_order) as maxSort FROM tasks WHERE phase_id = ?
+  if (sqlNormalized.startsWith('SELECT MAX(sort_order) as maxSort FROM tasks WHERE phase_id = ?')) {
+    const phaseTasks = inMemoryDb.tasks.filter(t => t.phase_id === params[0]);
+    const maxSort = phaseTasks.length
+      ? Math.max(...phaseTasks.map(t => Number(t.sort_order || 0)))
+      : null;
+    return [[{ maxSort }]];
+  }
+
   // SELECT * FROM tasks WHERE phase_id = ? ORDER BY sort_order ASC
   if (sqlNormalized.includes('SELECT * FROM tasks WHERE phase_id = ? ORDER BY sort_order ASC')) {
     return [inMemoryDb.tasks.filter(t => t.phase_id === params[0]).sort((a, b) => a.sort_order - b.sort_order)];

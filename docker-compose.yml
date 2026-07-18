@@ -6,10 +6,10 @@ services:
     container_name: jules-supervisor-db
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
       MYSQL_DATABASE: jules_supervisor
-      MYSQL_USER: supervisor
-      MYSQL_PASSWORD: supervisorpassword
+      MYSQL_USER: ${DB_USER:-supervisor}
+      MYSQL_PASSWORD: ${DB_PASS:-supervisorpassword}
     ports:
       - '3306:3306'
     volumes:

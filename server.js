@@ -4,6 +4,10 @@ import 'express-async-errors';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import fs from 'fs';
+import http from 'http';
+import https from 'https';
+import { execSync } from 'child_process';
 
 import { pool, runSchema } from './src/db/connection.js';
 import { startPoller } from './src/core/poller.js';
@@ -55,8 +59,40 @@ try {
 }
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, async () => {
-  console.log(`Supervisor online and listening on port ${PORT}`);
+const USE_HTTPS = process.env.USE_HTTPS === 'true';
+
+let server;
+
+if (USE_HTTPS) {
+  const keyPath = path.join(__dirname, 'server.key');
+  const certPath = path.join(__dirname, 'server.crt');
+
+  if (!fs.existsSync(keyPath) || !fs.existsSync(certPath)) {
+    try {
+      console.log('Generating self-signed SSL certificate for HTTPS server...');
+      execSync(`openssl req -x509 -newkey rsa:2048 -nodes -keyout "${keyPath}" -out "${certPath}" -days 365 -subj "/CN=localhost"`);
+    } catch (certErr) {
+      console.error('Failed to generate self-signed SSL cert via openssl:', certErr.message);
+    }
+  }
+
+  if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+    const options = {
+      key: fs.readFileSync(keyPath),
+      cert: fs.readFileSync(certPath)
+    };
+    server = https.createServer(options, app);
+    console.log('Starting HTTPS server...');
+  } else {
+    console.warn('SSL key/cert missing, falling back to HTTP server.');
+    server = http.createServer(app);
+  }
+} else {
+  server = http.createServer(app);
+}
+
+server.listen(PORT, async () => {
+  console.log(`Supervisor online and listening on port ${PORT} (${USE_HTTPS ? 'HTTPS' : 'HTTP'})`);
   
   // If a Telegram Webhook URL is specified in .env, register it
   const webhookUrl = process.env.TELEGRAM_WEBHOOK_URL;
@@ -68,3 +104,4 @@ app.listen(PORT, async () => {
     }
   }
 });
+

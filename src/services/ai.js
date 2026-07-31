@@ -147,18 +147,26 @@ Respond ONLY with valid JSON in this exact format:
   let modelUsed = PRIMARY_SUPERVISOR_MODEL;
   let parsed = null;
 
+  function parseAiJson(str) {
+    if (!str) return null;
+    try {
+      const match = str.match(/\{[\s\S]*\}/);
+      if (match) return JSON.parse(match[0]);
+    } catch (_) {}
+    return null;
+  }
+
   // Try primary
   try {
     text = await askModel(PRIMARY_SUPERVISOR_PROVIDER, PRIMARY_SUPERVISOR_MODEL, prompt, { returnJson: true, temperature: 0.2 });
-    const clean = text.replace(/```json|```/g, '').trim();
-    parsed = JSON.parse(clean);
+    parsed = parseAiJson(text);
   } catch (error) {
     console.error(`Primary AI call failed (${PRIMARY_SUPERVISOR_PROVIDER}/${PRIMARY_SUPERVISOR_MODEL}):`, error);
     lastError = error;
   }
 
   // Backup conditions
-  const needsBackup = !parsed || parsed.confidence < AI_CONFIDENCE_THRESHOLD;
+  const needsBackup = !parsed || isNaN(Number(parsed.confidence)) || Number(parsed.confidence) < AI_CONFIDENCE_THRESHOLD;
 
   if (needsBackup) {
     const reasonForBackup = !parsed 
@@ -169,17 +177,16 @@ Respond ONLY with valid JSON in this exact format:
     
     try {
       const backupText = await askModel(BACKUP_SUPERVISOR_PROVIDER, BACKUP_SUPERVISOR_MODEL, prompt, { returnJson: true, temperature: 0.2 });
-      const cleanBackup = backupText.replace(/```json|```/g, '').trim();
-      const parsedBackup = JSON.parse(cleanBackup);
+      const parsedBackup = parseAiJson(backupText);
       
-      // If backup succeeded, use it
-      parsed = parsedBackup;
-      providerUsed = BACKUP_SUPERVISOR_PROVIDER;
-      modelUsed = BACKUP_SUPERVISOR_MODEL;
+      if (parsedBackup && !isNaN(Number(parsedBackup.confidence))) {
+        parsed = parsedBackup;
+        providerUsed = BACKUP_SUPERVISOR_PROVIDER;
+        modelUsed = BACKUP_SUPERVISOR_MODEL;
+      }
     } catch (backupError) {
       console.error(`Backup AI call failed (${BACKUP_SUPERVISOR_PROVIDER}/${BACKUP_SUPERVISOR_MODEL}):`, backupError);
       
-      // If backup fails but we had a valid primary response (with lower confidence), fallback to the primary response
       if (!parsed) {
         return {
           confidence: 0,

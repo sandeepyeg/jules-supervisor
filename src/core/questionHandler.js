@@ -36,35 +36,43 @@ export async function handleQuestion(task, question, activityId) {
   // 3. Build context
   const context = await buildContext(task, task.phase_id);
 
-  // 4. Ask with confidence using DeepSeek
+  // 4. Consult AI with confidence threshold
   console.log(`Consulting AI with confidence threshold ${AI_CONFIDENCE_THRESHOLD}...`);
-  const result = await ai.askWithConfidence(context, question);
-  console.log(`AI Confidence: ${result.confidence}/10. Reason: ${result.reason}`);
+  let result = null;
+  try {
+    result = await ai.askWithConfidence(context, question);
+    console.log(`AI Confidence: ${result.confidence}/10. Reason: ${result.reason}`);
+  } catch (aiErr) {
+    console.error(`AI service error during askWithConfidence:`, aiErr.message);
+    result = { confidence: 0, answer: '', reason: aiErr.message };
+  }
 
-  // 5. Check if confidence meets the threshold
-  if (result.confidence >= AI_CONFIDENCE_THRESHOLD) {
+  // 5. Check if confidence meets threshold
+  if (result && result.confidence >= AI_CONFIDENCE_THRESHOLD && result.answer && result.answer.trim().length > 0) {
     console.log(`AI confidence meets threshold. Auto-answering Jules session.`);
     await jules.sendMessage(task.jules_session_id, result.answer);
     
     // Log to QA log
-    await logQA(task.id, question, result.answer, 'deepseek', result.confidence);
+    await logQA(task.id, question, result.answer, result.provider || 'ai', result.confidence);
     
     // Update task back to running
     await updateTaskStatus(task.id, 'running');
     
     return { escalated: false, answer: result.answer };
   } else {
-    console.log(`AI confidence too low (${result.confidence} < ${AI_CONFIDENCE_THRESHOLD}). Escalating to Telegram.`);
+    const reasonText = result ? (result.confidence < AI_CONFIDENCE_THRESHOLD ? `Low AI Confidence: ${result.confidence}/10` : 'AI Error') : 'Escalated';
+    console.log(`AI confidence insufficient (${reasonText}). Escalating to Telegram.`);
+    
     const sentMsg = await telegram.sendEscalation(
-      `${task.title} (Low AI Confidence: ${result.confidence}/10)`,
+      `${task.title} (${reasonText})`,
       task.id,
       question
     );
     
     await createTelegramPending(task.id, question, sentMsg.message_id);
     
-    // Log to QA log with the low confidence
-    await logQA(task.id, question, `[Escalated] ${result.answer}`, 'telegram', result.confidence);
+    // Log to QA log
+    await logQA(task.id, question, `[Escalated] ${result?.answer || ''}`, 'telegram', result?.confidence || 0);
     
     return { escalated: true };
   }

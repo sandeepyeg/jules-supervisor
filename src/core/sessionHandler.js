@@ -5,6 +5,9 @@ import * as telegram from '../services/telegram.js';
 import * as questionHandler from './questionHandler.js';
 import * as prReviewer from './prReviewer.js';
 
+const HANDLED_FEEDBACK_RETRY_MS = parseInt(process.env.HANDLED_FEEDBACK_RETRY_MS || '1800000', 10);
+const FEEDBACK_RETRY_MARKER = '::feedback_retry::';
+
 /**
  * Manages the state machine transitions of an active Jules session.
  */
@@ -105,8 +108,25 @@ export async function handleSession(task) {
         return;
       }
       
-      // If this is the same activity we already processed, do nothing
-      if (agentMsg.activityId === task.last_activity_id) {
+      const lastActivityId = String(task.last_activity_id || '');
+      const retryPrefix = `${agentMsg.activityId}${FEEDBACK_RETRY_MARKER}`;
+      const alreadyHandled = lastActivityId === agentMsg.activityId || lastActivityId.startsWith(retryPrefix);
+
+      // If Jules is still waiting on an already-handled activity, retry after a grace period.
+      if (alreadyHandled) {
+        const elapsedMs = Date.now() - new Date(task.updated_at || task.created_at).getTime();
+        if (task.status === 'running' && elapsedMs >= HANDLED_FEEDBACK_RETRY_MS) {
+          console.log(`Agent question activity ${agentMsg.activityId} is still awaiting feedback after ${Math.floor(elapsedMs / 60000)} minutes. Re-sending proceed instruction.`);
+          await jules.sendMessage(
+            task.jules_session_id,
+            'Proceed with the implementation based on the previous supervisor answer. Keep the PR targeted to the phase branch and continue without waiting for additional confirmation.'
+          );
+          await queries.updateTaskStatus(task.id, 'running', {
+            last_activity_id: `${retryPrefix}${Date.now()}`
+          });
+          return;
+        }
+
         console.log(`Agent question activity ${agentMsg.activityId} has already been handled.`);
         return;
       }

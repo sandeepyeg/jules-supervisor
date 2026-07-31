@@ -26,24 +26,22 @@ function getQaAnsweredBy(provider) {
  */
 export async function handleQuestion(task, question, activityId) {
   console.log(`Handling question for task #${task.id} ("${task.title}"). Activity ID: ${activityId}`);
-  
-  // 1. Update task: last_activity_id = activityId, status = 'waiting_answer'
-  await updateTaskStatus(task.id, 'waiting_answer', {
-    last_activity_id: activityId
-  });
 
-  // 2. If task mode is manual, escalate immediately
+  // 1. If task mode is manual, escalate immediately
   if (task.mode === 'manual') {
     console.log(`Task #${task.id} is in manual mode. Escalating directly to Telegram.`);
     const sentMsg = await telegram.sendEscalation(task.title, task.id, question);
     await createTelegramPending(task.id, question, sentMsg.message_id);
+    await updateTaskStatus(task.id, 'waiting_answer', {
+      last_activity_id: activityId
+    });
     return { escalated: true };
   }
 
-  // 3. Build context
+  // 2. Build context
   const context = await buildContext(task, task.phase_id);
 
-  // 4. Consult AI with confidence threshold
+  // 3. Consult AI with confidence threshold
   console.log(`Consulting AI with confidence threshold ${AI_CONFIDENCE_THRESHOLD}...`);
   let result = null;
   try {
@@ -59,11 +57,16 @@ export async function handleQuestion(task, question, activityId) {
     console.log(`AI confidence meets threshold. Auto-answering Jules session.`);
     await jules.sendMessage(task.jules_session_id, result.answer);
     
-    // Log to QA log
-    await logQA(task.id, question, result.answer, getQaAnsweredBy(result.provider), result.confidence);
+    try {
+      await logQA(task.id, question, result.answer, getQaAnsweredBy(result.provider), result.confidence);
+    } catch (logErr) {
+      console.warn(`Failed to log AI answer for task #${task.id}:`, logErr.message);
+    }
     
     // Update task back to running
-    await updateTaskStatus(task.id, 'running');
+    await updateTaskStatus(task.id, 'running', {
+      last_activity_id: activityId
+    });
     
     return { escalated: false, answer: result.answer };
   } else {
@@ -78,8 +81,15 @@ export async function handleQuestion(task, question, activityId) {
     
     await createTelegramPending(task.id, question, sentMsg.message_id);
     
-    // Log to QA log
-    await logQA(task.id, question, `[Escalated] ${result?.answer || ''}`, 'telegram', result?.confidence || 0);
+    try {
+      await logQA(task.id, question, `[Escalated] ${result?.answer || ''}`, 'telegram', result?.confidence || 0);
+    } catch (logErr) {
+      console.warn(`Failed to log Telegram escalation for task #${task.id}:`, logErr.message);
+    }
+
+    await updateTaskStatus(task.id, 'waiting_answer', {
+      last_activity_id: activityId
+    });
     
     return { escalated: true };
   }

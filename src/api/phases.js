@@ -279,6 +279,36 @@ router.post('/:id/tasks', portalAuth, async (req, res) => {
 });
 
 /**
+ * POST /api/phases/:id/sync
+ * Triggers an immediate supervisor poll cycle for the phase.
+ */
+router.post('/:id/sync', portalAuth, async (req, res) => {
+  const phaseId = parseInt(req.params.id, 10);
+  try {
+    const phase = await queries.getPhase(phaseId);
+    if (!phase) {
+      return res.status(404).json({ error: 'Phase not found' });
+    }
+    
+    // Process active running/open PR sessions immediately
+    const activeTasks = await queries.getActiveTasks(phaseId);
+    for (const task of activeTasks) {
+      if (task.status === 'waiting_answer') continue;
+      const sessionHandler = await import('../core/sessionHandler.js');
+      await sessionHandler.handleSession(task);
+    }
+    
+    // Start ready tasks
+    await taskManager.startReadyTasks(phaseId, phase.phase_branch);
+    
+    res.json({ synced: true });
+  } catch (error) {
+    console.error('Error syncing phase:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * PATCH /api/phases/:id/tasks/:taskId
  * Updates a task status, session ID, or PR info and triggers ready tasks.
  */

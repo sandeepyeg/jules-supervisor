@@ -1,6 +1,7 @@
 import TelegramBot from 'node-telegram-bot-api';
 import EventEmitter from 'events';
 import { getPortalSecret } from '../api/auth.js';
+import { pool } from '../db/connection.js';
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -17,6 +18,7 @@ if (!token || token.startsWith('your_')) {
       console.log(`[Mock Telegram] Send to ${cid || chatId}: ${text}`, options || '');
       return { message_id: Math.floor(Math.random() * 1000000000) };
     },
+    answerCallbackQuery: async () => {},
     setWebHook: async (url) => {
       console.log(`[Mock Telegram] Webhook set to ${url}`);
     },
@@ -27,28 +29,19 @@ if (!token || token.startsWith('your_')) {
   };
 } else {
   if (webhookUrl) {
-    // Webhook mode: disable polling entirely
     bot = new TelegramBot(token, { polling: false });
     console.log('Telegram Bot configured for Webhook mode.');
   } else {
-    // Long-polling mode: first create the bot without polling, clear any stale
-    // sessions from Telegram's side (prevents 409 Conflict on restart), then
-    // start polling cleanly.
     bot = new TelegramBot(token, { polling: false });
 
-    // Silently swallow 409 Conflict — these fire during node --watch restart
-    // while the old process is still dying. The library retries automatically.
     bot.on('polling_error', (error) => {
       if (error.message && error.message.includes('409 Conflict')) {
-        // intentionally silent — this is expected during hot-reload
+        // intentionally silent — expected during hot-reload
       } else {
         console.error('Telegram Bot Polling Error:', error);
       }
     });
 
-    // node --watch sends SIGUSR2 to kill the old process. We must stop polling
-    // before the new instance tries to connect, otherwise both fight for the
-    // same Telegram long-polling slot and produce 409 conflicts.
     const stopAndExit = async (signal) => {
       try {
         await bot.stopPolling();
@@ -60,20 +53,36 @@ if (!token || token.startsWith('your_')) {
     process.once('SIGINT',  async () => { try { await bot.stopPolling(); } catch (_) {} process.exit(0); });
     process.once('SIGTERM', async () => { try { await bot.stopPolling(); } catch (_) {} process.exit(0); });
 
-    // Small startup delay so the previous instance finishes releasing the
-    // Telegram polling connection before we open a new one.
     setTimeout(() => {
       bot.startPolling();
       console.log('Telegram Bot configured for Long-Polling mode.');
     }, 1500);
   }
 
-  bot.on('message', (msg) => {
-    // Only accept messages from your specific chat ID for security
+  // Incoming text messages & commands
+  bot.on('message', async (msg) => {
     if (chatId && String(msg.chat.id) !== String(chatId)) {
       console.warn(`Blocked incoming Telegram message from unauthorized chat ID: ${msg.chat.id}`);
       return;
     }
+
+    const text = (msg.text || '').trim();
+
+    // /status, /start, /help commands
+    if (text === '/status' || text === '/start' || text === '/help') {
+      try {
+        const summary = await getStatusSummaryMessage();
+        await bot.sendMessage(chatId, summary.text, {
+          parse_mode: 'Markdown',
+          reply_markup: summary.reply_markup
+        });
+      } catch (err) {
+        console.error('Error handling Telegram /status command:', err);
+        await bot.sendMessage(chatId, `Error fetching status: ${err.message}`);
+      }
+      return;
+    }
+
     if (msg.reply_to_message) {
       telegramEmitter.emit('reply', {
         replyToMessageId: msg.reply_to_message.message_id,
@@ -81,9 +90,85 @@ if (!token || token.startsWith('your_')) {
       });
     }
   });
+
+  // Incoming inline button clicks
+  bot.on('callback_query', async (query) => {
+    if (chatId && String(query.message?.chat?.id) !== String(chatId)) {
+      return;
+    }
+
+    const data = query.data;
+    if (data === 'cmd_status') {
+      try {
+        const summary = await getStatusSummaryMessage();
+        try { await bot.answerCallbackQuery(query.id, { text: 'Status updated!' }); } catch (_) {}
+        await bot.sendMessage(chatId, summary.text, {
+          parse_mode: 'Markdown',
+          reply_markup: summary.reply_markup
+        });
+      } catch (err) {
+        console.error('Error handling callback_query cmd_status:', err);
+      }
+    }
+  });
 }
 
 export { bot };
+
+/**
+ * Builds live pipeline status text and inline keyboard buttons.
+ */
+export async function getStatusSummaryMessage() {
+  const [phases] = await pool.query("SELECT * FROM phases WHERE status = 'active' ORDER BY id DESC LIMIT 1");
+  const phase = phases[0];
+
+  if (!phase) {
+    return {
+      text: "ℹ️ *No active phase currently running.*",
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "🌐 Open Dashboard", url: "https://jules.sandeepbuilds.com" }]
+        ]
+      }
+    };
+  }
+
+  const [tasks] = await pool.query("SELECT * FROM tasks WHERE phase_id = ? ORDER BY sort_order ASC", [phase.id]);
+  const total = tasks.length;
+  const merged = tasks.filter(t => t.status === 'merged' || t.status === 'skipped').length;
+  const activeTask = tasks.find(t => t.status === 'running' || t.status === 'pr_open' || t.status === 'waiting_answer');
+
+  const pct = Math.round((merged / total) * 100) || 0;
+  const filled = Math.round((pct / 100) * 10);
+  const progressBar = "█".repeat(filled) + "░".repeat(10 - filled);
+
+  let statusText = `📊 *Phase Status: ${phase.title}*\n`;
+  statusText += `Target Branch: \`${phase.phase_branch}\`\n`;
+  statusText += `Progress: [${progressBar}] ${merged}/${total} Tasks (${pct}%)\n\n`;
+
+  if (activeTask) {
+    statusText += `🔄 *Active Task #${activeTask.id}*:\n"${activeTask.title}"\nStatus: \`${activeTask.status}\`\n`;
+    if (activeTask.pr_url) {
+      statusText += `PR: ${activeTask.pr_url}\n`;
+    }
+  } else {
+    statusText += `✅ *All active tasks up to date.*`;
+  }
+
+  const buttons = [];
+  if (activeTask && activeTask.pr_url) {
+    buttons.push([{ text: "🔗 Open Active PR on GitHub", url: activeTask.pr_url }]);
+  }
+  buttons.push([
+    { text: "📊 Refresh Status", callback_data: "cmd_status" },
+    { text: "🌐 Open Dashboard", url: "https://jules.sandeepbuilds.com" }
+  ]);
+
+  return {
+    text: statusText,
+    reply_markup: { inline_keyboard: buttons }
+  };
+}
 
 /**
  * Sends an escalation message when AI confidence is low.
@@ -113,15 +198,31 @@ export async function sendNotification(text) {
  */
 export async function sendPRBlockedNotification({ taskTitle, prUrl, riskLevel, blockingReason, julesFix }) {
   const formatted = `🚨 PR Blocked by Supervisor\n\nTask: ${taskTitle}\nPR URL: ${prUrl}\nRisk Level: ${riskLevel}\nReason: ${blockingReason}\nJules Instruction: ${julesFix}`;
-  return bot.sendMessage(chatId, formatted);
+  const options = {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "🔗 Open PR on GitHub", url: prUrl }],
+        [{ text: "📊 Check Status", callback_data: "cmd_status" }, { text: "🌐 Open Dashboard", url: "https://jules.sandeepbuilds.com" }]
+      ]
+    }
+  };
+  return bot.sendMessage(chatId, formatted, options);
 }
 
 /**
- * Sends an alert when a PR is approved but auto-merge is disabled (or blocked by risk/checks).
+ * Sends an alert when a PR is approved but auto-merge is disabled.
  */
 export async function sendPRReadyNotification({ taskTitle, prUrl }) {
   const formatted = `✅ PR Ready for Review\n\nTask: ${taskTitle}\nPR URL: ${prUrl}\n\nTask PR appears ready for human review/merge into phase branch.`;
-  return bot.sendMessage(chatId, formatted);
+  const options = {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "🔗 Open PR on GitHub", url: prUrl }],
+        [{ text: "📊 Check Status", callback_data: "cmd_status" }]
+      ]
+    }
+  };
+  return bot.sendMessage(chatId, formatted, options);
 }
 
 /**
@@ -129,7 +230,14 @@ export async function sendPRReadyNotification({ taskTitle, prUrl }) {
  */
 export async function sendTaskStartedNotification(taskTitle, taskId, phaseBranch) {
   const formatted = `🚀 Task #${taskId} Started\n\nTask: ${taskTitle}\nTarget Branch: ${phaseBranch}\n\nJules is actively generating code changes.`;
-  return bot.sendMessage(chatId, formatted);
+  const options = {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "📊 Check Status", callback_data: "cmd_status" }, { text: "🌐 Open Dashboard", url: "https://jules.sandeepbuilds.com" }]
+      ]
+    }
+  };
+  return bot.sendMessage(chatId, formatted, options);
 }
 
 /**
@@ -137,7 +245,15 @@ export async function sendTaskStartedNotification(taskTitle, taskId, phaseBranch
  */
 export async function sendPRCreatedNotification(taskTitle, taskId, prUrl) {
   const formatted = `📝 PR Opened for Task #${taskId}\n\nTask: ${taskTitle}\nPR URL: ${prUrl}\n\nSupervisor is reviewing code changes...`;
-  return bot.sendMessage(chatId, formatted);
+  const options = {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "🔗 Open PR on GitHub", url: prUrl }],
+        [{ text: "📊 Check Status", callback_data: "cmd_status" }]
+      ]
+    }
+  };
+  return bot.sendMessage(chatId, formatted, options);
 }
 
 /**
@@ -145,7 +261,14 @@ export async function sendPRCreatedNotification(taskTitle, taskId, prUrl) {
  */
 export async function sendTaskMergedNotification(taskTitle, taskId, prUrl, phaseBranch, nextTaskTitle) {
   const formatted = `✅ Task #${taskId} Merged\n\nTask: ${taskTitle}\nPR URL: ${prUrl || 'N/A'}\nBranch: ${phaseBranch}\n\n${nextTaskTitle ? `Next task starting: "${nextTaskTitle}"` : 'All phase tasks completed!'}`;
-  return bot.sendMessage(chatId, formatted);
+  const options = {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "📊 Check Status", callback_data: "cmd_status" }, { text: "🌐 Open Dashboard", url: "https://jules.sandeepbuilds.com" }]
+      ]
+    }
+  };
+  return bot.sendMessage(chatId, formatted, options);
 }
 
 /**
@@ -153,7 +276,14 @@ export async function sendTaskMergedNotification(taskTitle, taskId, prUrl, phase
  */
 export async function sendPhaseCompleteNotification(phaseBranch, phaseTitle) {
   const formatted = `🏁 Phase Complete\n\nPhase: ${phaseTitle}\n\nPhase complete. Review branch ${phaseBranch}. Human should manually create/review/merge final PR into main.`;
-  return bot.sendMessage(chatId, formatted);
+  const options = {
+    reply_markup: {
+      inline_keyboard: [
+        [{ text: "🌐 Open Dashboard", url: "https://jules.sandeepbuilds.com" }]
+      ]
+    }
+  };
+  return bot.sendMessage(chatId, formatted, options);
 }
 
 /**

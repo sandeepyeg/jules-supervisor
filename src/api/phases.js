@@ -278,4 +278,34 @@ router.post('/:id/tasks', portalAuth, async (req, res) => {
   }
 });
 
+/**
+ * PATCH /api/phases/:id/tasks/:taskId
+ * Updates a task status, session ID, or PR info and triggers ready tasks.
+ */
+router.patch('/:id/tasks/:taskId', portalAuth, async (req, res) => {
+  const taskId = parseInt(req.params.taskId, 10);
+  const { status, pr_url, pr_number, jules_session_id } = req.body;
+  
+  try {
+    const fields = {};
+    if (pr_url !== undefined) fields.pr_url = pr_url;
+    if (pr_number !== undefined) fields.pr_number = pr_number;
+    if (jules_session_id !== undefined) fields.jules_session_id = jules_session_id;
+
+    await queries.updateTaskStatus(taskId, status, fields);
+    
+    // Trigger startReadyTasks for active phase
+    const phaseId = parseInt(req.params.id, 10);
+    const phase = await queries.getPhase(phaseId);
+    if (phase && phase.status === 'active') {
+      await taskManager.startReadyTasks(phaseId, phase.phase_branch);
+    }
+    
+    res.json({ updated: true });
+  } catch (error) {
+    console.error('Error updating task:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

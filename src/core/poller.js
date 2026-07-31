@@ -11,6 +11,117 @@ import {
 
 // Keep track of active interval references by phase ID so we can stop them if needed
 const activePollers = new Map();
+const activePollRuns = new Set();
+
+/**
+ * Watchdog: runs every 2 minutes and auto-revives any dead pollers for active phases.
+ * Handles server restarts, crashes, or any reason the poller interval died.
+ */
+setInterval(async () => {
+  try {
+    const [activePhases] = await (await import('../db/connection.js')).pool.query("SELECT id FROM phases WHERE status = 'active'");
+    for (const phase of activePhases) {
+      if (!activePollers.has(phase.id)) {
+        console.log(`[Watchdog] Poller for phase #${phase.id} is dead. Auto-reviving...`);
+        startPoller(phase.id);
+      }
+    }
+  } catch (watchdogErr) {
+    console.warn('[Watchdog] Error checking poller health:', watchdogErr.message);
+  }
+}, 2 * 60 * 1000); // Every 2 minutes
+
+export function getPollerHealth() {
+  return {
+    activePhaseIds: [...activePollers.keys()],
+    inFlightPhaseIds: [...activePollRuns.values()]
+  };
+}
+
+export async function runPollCycle(phaseId) {
+  if (activePollRuns.has(phaseId)) {
+    console.log(`Poll cycle already running for phase ${phaseId}. Skipping overlapping run.`);
+    return { skipped: true, reason: 'already_running' };
+  }
+
+  activePollRuns.add(phaseId);
+
+  try {
+    const phase = await queries.getPhase(phaseId);
+    if (!phase || phase.status !== 'active') {
+      console.log(`Phase ${phaseId} is no longer active (status: ${phase?.status}).`);
+      stopPoller(phaseId);
+      return { skipped: true, reason: 'phase_inactive' };
+    }
+
+    // 1. Process active running/open PR sessions
+    const activeTasks = await queries.getActiveTasks(phaseId);
+    for (const task of activeTasks) {
+      if (task.status === 'waiting_answer') {
+        continue;
+      }
+
+      try {
+        await sessionHandler.handleSession(task);
+      } catch (error) {
+        console.error(`Error handling session for task #${task.id}:`, error);
+      }
+    }
+
+    // 2. Start any newly unblocked tasks
+    try {
+      await taskManager.startReadyTasks(phaseId, phase.phase_branch);
+    } catch (error) {
+      console.error(`Error starting ready tasks for phase ${phaseId}:`, error);
+    }
+
+    // 3. Send reminders
+    try {
+      await sendReminders();
+    } catch (error) {
+      console.error('Error sending Telegram reminders:', error);
+    }
+
+    // 4. Check for failed tasks
+    const tasks = await queries.getTasksForPhase(phaseId);
+    const failedTask = tasks.find(t => t.status === 'failed');
+    if (failedTask) {
+      console.log(`Task "${failedTask.title}" failed. Marking phase ${phaseId} as failed.`);
+      await queries.updatePhaseStatus(phaseId, 'failed', { completed_at: new Date() });
+      await telegram.sendNotification(`Phase failed: "${phase.title}" was stopped because task "${failedTask.title}" failed.`);
+      stopPoller(phaseId);
+      return { failed: true };
+    }
+
+    // 5. Check for phase completion
+    const isComplete = tasks.length > 0 && tasks.every(t => t.status === 'merged' || t.status === 'skipped');
+    if (isComplete) {
+      console.log(`All tasks in phase ${phaseId} merged/skipped! Marking phase complete.`);
+      await queries.updatePhaseStatus(phaseId, 'complete', { completed_at: new Date() });
+      await telegram.sendPhaseCompleteNotification(phase.phase_branch, phase.title);
+
+      if (CREATE_FINAL_DRAFT_PR) {
+        try {
+          console.log(`Creating final draft PR for branch ${phase.phase_branch} into ${phase.main_branch}...`);
+          await github.createDraftPR(
+            phase.phase_branch,
+            phase.main_branch,
+            `Draft: Merge phase branch ${phase.phase_branch} into ${phase.main_branch}`
+          );
+        } catch (prErr) {
+          console.error('Failed to create final draft PR:', prErr);
+        }
+      }
+
+      stopPoller(phaseId);
+      return { completed: true };
+    }
+
+    return { completed: false };
+  } finally {
+    activePollRuns.delete(phaseId);
+  }
+}
 
 /**
  * Starts the periodic poller for a given phase ID.
@@ -25,87 +136,16 @@ export function startPoller(phaseId) {
 
   const interval = setInterval(async () => {
     try {
-      const phase = await queries.getPhase(phaseId);
-      if (!phase || phase.status !== 'active') {
-        console.log(`Phase ${phaseId} is no longer active (status: ${phase?.status}). Stopping poller.`);
-        clearInterval(interval);
-        activePollers.delete(phaseId);
-        return;
-      }
-      
-      // 1. Process active running/open PR sessions
-      const activeTasks = await queries.getActiveTasks(phaseId);
-      for (const task of activeTasks) {
-        // Skip tasks that are explicitly waiting for a Telegram reply
-        if (task.status === 'waiting_answer') {
-          continue;
-        }
-        try {
-          await sessionHandler.handleSession(task);
-        } catch (error) {
-          console.error(`Error handling session for task #${task.id}:`, error);
-        }
-      }
-      
-      // 2. Start any newly unblocked tasks (dependencies resolved)
-      try {
-        await taskManager.startReadyTasks(phaseId, phase.phase_branch);
-      } catch (error) {
-        console.error(`Error starting ready tasks for phase ${phaseId}:`, error);
-      }
-      
-      // 3. Send Telegram reminders for unresolved pending questions
-      try {
-        await sendReminders();
-      } catch (error) {
-        console.error('Error sending Telegram reminders:', error);
-      }
-      
-      // 4. Check if any task has failed
-      const tasks = await queries.getTasksForPhase(phaseId);
-      const failedTask = tasks.find(t => t.status === 'failed');
-      if (failedTask) {
-        console.log(`Task "${failedTask.title}" failed. Marking phase ${phaseId} as failed.`);
-        await queries.updatePhaseStatus(phaseId, 'failed', { completed_at: new Date() });
-        await telegram.sendNotification(`Phase failed: "${phase.title}" was stopped because task "${failedTask.title}" failed.`);
-        
-        clearInterval(interval);
-        activePollers.delete(phaseId);
-        return;
-      }
-      
-      // 5. Check if phase is complete
-      const isComplete = tasks.length > 0 && tasks.every(t => t.status === 'merged' || t.status === 'skipped');
-      if (isComplete) {
-        console.log(`All tasks in phase ${phaseId} merged/skipped! Marking phase complete.`);
-        await queries.updatePhaseStatus(phaseId, 'complete', { completed_at: new Date() });
-        
-        // Notify Telegram with the safe phase-branch text
-        await telegram.sendPhaseCompleteNotification(phase.phase_branch, phase.title);
-        
-        // If configured, create a draft PR from phase_branch to main (does not merge)
-        if (CREATE_FINAL_DRAFT_PR) {
-          try {
-            console.log(`Creating final draft PR for branch ${phase.phase_branch} into ${phase.main_branch}...`);
-            await github.createDraftPR(
-              phase.phase_branch,
-              phase.main_branch,
-              `Draft: Merge phase branch ${phase.phase_branch} into ${phase.main_branch}`
-            );
-          } catch (prErr) {
-            console.error('Failed to create final draft PR:', prErr);
-          }
-        }
-        
-        clearInterval(interval);
-        activePollers.delete(phaseId);
-      }
+      await runPollCycle(phaseId);
     } catch (err) {
       console.error('Supervisor poller execution error:', err);
     }
   }, POLL_INTERVAL_MS);
 
   activePollers.set(phaseId, interval);
+  void runPollCycle(phaseId).catch(err => {
+    console.error(`Immediate poll cycle failed for phase ${phaseId}:`, err);
+  });
   return interval;
 }
 
@@ -137,5 +177,22 @@ export function stopPoller(phaseId) {
     console.log(`Stopping poller for phase ${phaseId} manually.`);
     clearInterval(activePollers.get(phaseId));
     activePollers.delete(phaseId);
+  }
+}
+
+/**
+ * Startup GitHub scan: immediately after server boot, finds any running tasks
+ * that already have open PRs on GitHub (but pr_number not yet in DB).
+ * Fixes the "server restarted while Jules PR was open" failure class.
+ */
+export async function startupGitHubScan() {
+  try {
+    const [activePhases] = await (await import('../db/connection.js')).pool.query("SELECT id FROM phases WHERE status = 'active'");
+    for (const phase of activePhases) {
+      console.log(`[StartupScan] Running immediate reconciliation for phase #${phase.id}...`);
+      await runPollCycle(phase.id);
+    }
+  } catch (err) {
+    console.warn('[StartupScan] Error during startup GitHub PR scan:', err.message);
   }
 }

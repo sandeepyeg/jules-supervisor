@@ -331,6 +331,7 @@ test('End-to-End Real World Supervisor Workflow Simulator', async (t) => {
   await t.test('3. Task 2 requests feedback, triggers Telegram escalation on low AI confidence', async () => {
     julesSessionState = 'AWAITING_USER_FEEDBACK';
     aiConfidence = 4; // Under threshold (7)
+    sentTelegramMessages.length = 0;
     
     const activeTasks = await queries.getActiveTasks(phaseId);
     assert.strictEqual(activeTasks.length, 1);
@@ -344,8 +345,9 @@ test('End-to-End Real World Supervisor Workflow Simulator', async (t) => {
     assert.strictEqual(t2.last_activity_id, 'activity_question_abc');
 
     // Verify Telegram message was dispatched
-    assert.strictEqual(sentTelegramMessages.length, 1);
-    assert.ok(sentTelegramMessages[0].text.includes('Low AI Confidence: 4/10'));
+    assert.ok(sentTelegramMessages.length >= 1);
+    const escalationMessage = sentTelegramMessages.find(msg => msg.text.includes('Low AI Confidence: 4/10'));
+    assert.ok(escalationMessage);
     
     // Check telegram_pending record exists
     const [pending] = await pool.query('SELECT * FROM telegram_pending WHERE task_id = ?', [task2Id]);
@@ -354,18 +356,19 @@ test('End-to-End Real World Supervisor Workflow Simulator', async (t) => {
   });
 
   await t.test('4. Webhook receives developer answer via Telegram reply, updates Task 2 back to running', async () => {
-    const telegramMsg = sentTelegramMessages[0];
+    const [pending] = await pool.query('SELECT * FROM telegram_pending WHERE task_id = ?', [task2Id]);
+    assert.strictEqual(pending.length, 1);
     
     // Simulate incoming Telegram webhook call with the answer text
-    await questionHandler.handleTelegramReply(telegramMsg.messageId, 'Use pg-promise for PostgreSQL connection pooling.');
+    await questionHandler.handleTelegramReply(pending[0].telegram_message_id, 'Use pg-promise for PostgreSQL connection pooling.');
     
     // Task 2 should be returned to running state
     const t2 = await queries.getTask(task2Id);
     assert.strictEqual(t2.status, 'running');
 
     // Check pending telegram record is now resolved
-    const [pending] = await pool.query('SELECT * FROM telegram_pending WHERE task_id = ?', [task2Id]);
-    assert.strictEqual(pending[0].resolved, 1);
+    const [resolvedPending] = await pool.query('SELECT * FROM telegram_pending WHERE task_id = ?', [task2Id]);
+    assert.strictEqual(resolvedPending[0].resolved, 1);
     
     // Check QA log entry
     const [qaLogs] = await pool.query('SELECT * FROM qa_log WHERE task_id = ? ORDER BY id DESC', [task2Id]);

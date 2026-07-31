@@ -11,26 +11,71 @@ import * as prReviewer from './prReviewer.js';
 export async function handleSession(task) {
   console.log(`Checking session ${task.jules_session_id} for task #${task.id} (Status: ${task.status})`);
   
-  // 0. Self-Healing PR Reconciliation: Check if PR exists and is merged on GitHub
-  if (task.status === 'running' || task.status === 'pr_open') {
+  // 0. Self-Healing PR Reconciliation:
+  // Step 0a: If we have a pr_number, check if it's already merged on GitHub
+  if ((task.status === 'running' || task.status === 'pr_open') && task.pr_number) {
     try {
-      if (task.pr_number) {
-        const pr = await github.getPR(task.pr_number);
-        if (pr && (pr.merged || pr.state === 'closed')) {
-          console.log(`Self-Healing: PR #${task.pr_number} for task #${task.id} is MERGED on GitHub. Syncing DB status.`);
-          await queries.updateTaskStatus(task.id, 'merged', {
-            pr_url: pr.html_url || task.pr_url,
-            pr_number: task.pr_number
+      const pr = await github.getPR(task.pr_number);
+      if (pr?.merged === true) {
+        console.log(`Self-Healing: PR #${task.pr_number} for task #${task.id} is MERGED on GitHub. Syncing DB status.`);
+        await queries.updateTaskStatus(task.id, 'merged', {
+          pr_url: pr.html_url || task.pr_url,
+          pr_number: task.pr_number
+        });
+        const phase = await queries.getPhase(task.phase_id);
+        const ready = await queries.getQueuedReadyTasks(task.phase_id);
+        const nextTitle = ready[0]?.title;
+        await telegram.sendTaskMergedNotification(task.title, task.id, pr.html_url || task.pr_url, phase ? phase.phase_branch : 'phase branch', nextTitle);
+        return;
+      }
+      if (pr?.state === 'closed') {
+        console.log(`Self-Healing: PR #${task.pr_number} for task #${task.id} is closed without merge. Marking task failed.`);
+        await queries.updateTaskStatus(task.id, 'failed', {
+          pr_url: pr.html_url || task.pr_url,
+          pr_number: task.pr_number
+        });
+        await telegram.sendNotification(`Task failed: "${task.title}" PR #${task.pr_number} was closed without being merged.\n${pr.html_url || task.pr_url || ''}`);
+        return;
+      }
+    } catch (reconcileErr) {
+      console.warn(`PR self-healing (merge check) warning for task #${task.id}:`, reconcileErr.message);
+    }
+  }
+
+  // Step 0b: GitHub-First PR Detection — even if Jules session is IN_PROGRESS,
+  // check if Jules already opened a PR on GitHub that we haven't recorded yet.
+  // This is the fix for the "PR exists but supervisor didn't notice" failure class.
+  if (task.status === 'running' && !task.pr_number) {
+    try {
+      const phase0 = await queries.getPhase(task.phase_id);
+      if (phase0) {
+        const ghPR = await github.findOpenPRForTask(task.jules_session_id, phase0.phase_branch);
+        if (ghPR) {
+          console.log(`GitHub-First Detection: Found open PR #${ghPR.number} for task #${task.id} (session ${task.jules_session_id}). Routing to review/merge immediately.`);
+          const prNumber0 = ghPR.number;
+          const prUrl0 = ghPR.html_url;
+
+          // Guard: block if targeting main
+          if (ghPR.base?.ref === 'main' || ghPR.base?.ref === 'master') {
+            console.error(`SAFETY BLOCK: PR #${prNumber0} targets main! Skipping auto-merge. Telegram alert sent.`);
+            await telegram.sendNotification(`🚨 SAFETY BLOCK: PR #${prNumber0} for Task #${task.id} targets main! Human review required. DO NOT auto-merge.\n${prUrl0}`);
+            return;
+          }
+
+          await queries.updateTaskStatus(task.id, 'pr_open', {
+            pr_url: prUrl0,
+            pr_number: prNumber0
           });
-          const phase = await queries.getPhase(task.phase_id);
-          const ready = await queries.getQueuedReadyTasks(task.phase_id);
-          const nextTitle = ready[0]?.title;
-          await telegram.sendTaskMergedNotification(task.title, task.id, pr.html_url || task.pr_url, phase ? phase.phase_branch : 'phase branch', nextTitle);
+          try {
+            await telegram.sendPRCreatedNotification(task.title, task.id, prUrl0);
+          } catch (_) {}
+          const updatedTask0 = await queries.getTask(task.id);
+          await prReviewer.reviewAndMerge(updatedTask0);
           return;
         }
       }
-    } catch (reconcileErr) {
-      console.warn(`PR self-healing check warning for task #${task.id}:`, reconcileErr.message);
+    } catch (ghDetectErr) {
+      console.warn(`GitHub-First PR detection warning for task #${task.id}:`, ghDetectErr.message);
     }
   }
 
@@ -137,7 +182,7 @@ export async function handleSession(task) {
       // Check if PR is ALREADY merged on GitHub (e.g., manual merge by user)
       try {
         const prState = await github.getPR(prNumber);
-        if (prState && (prState.merged || prState.state === 'closed')) {
+        if (prState?.merged === true) {
           console.log(`PR #${prNumber} for task #${task.id} is already MERGED on GitHub. Marking task merged.`);
           await queries.updateTaskStatus(task.id, 'merged', {
             pr_url: prUrl,
@@ -151,6 +196,15 @@ export async function handleSession(task) {
           } catch (tgErr) {
             console.error('Telegram notification error:', tgErr);
           }
+          return;
+        }
+        if (prState?.state === 'closed') {
+          console.log(`PR #${prNumber} for task #${task.id} is closed without merge. Marking task failed.`);
+          await queries.updateTaskStatus(task.id, 'failed', {
+            pr_url: prUrl,
+            pr_number: prNumber
+          });
+          await telegram.sendNotification(`Task failed: "${task.title}" PR #${prNumber} was closed without being merged.\n${prUrl}`);
           return;
         }
       } catch (prCheckErr) {
@@ -242,7 +296,10 @@ Note: The previous attempt failed. Please try a different approach.`;
     case 'IN_PROGRESS':
     default: {
       console.log(`Session ${task.jules_session_id} is in progress (State: ${state}).`);
-      
+
+      // GitHub-First PR scan also runs for IN_PROGRESS Jules state (redundancy guard)
+      // Already handled in step 0b above before Jules API call — no duplicate needed here.
+
       const elapsedMs = Date.now() - new Date(task.updated_at || task.created_at).getTime();
       const elapsedMins = Math.floor(elapsedMs / 60000);
       

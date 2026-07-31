@@ -9,8 +9,8 @@ import http from 'http';
 import https from 'https';
 import { execSync } from 'child_process';
 
-import { pool, runSchema } from './src/db/connection.js';
-import { startPoller } from './src/core/poller.js';
+import { pool, runSchema, useMockDb } from './src/db/connection.js';
+import { getPollerHealth, startPoller, startupGitHubScan } from './src/core/poller.js';
 import phasesRouter from './src/api/phases.js';
 import statusRouter from './src/api/status.js';
 import webhookRouter from './src/api/webhook.js';
@@ -31,6 +31,31 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 app.get('/', (req, res) => {
   res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.sendFile(path.join(__dirname, 'src/portal/index.html'));
+});
+
+app.get('/health', async (req, res) => {
+  try {
+    const [dbPing] = await pool.query('SELECT 1');
+    res.json({
+      ok: true,
+      uptimeSeconds: Math.round(process.uptime()),
+      db: {
+        ok: true,
+        mode: useMockDb ? 'mock' : 'mysql',
+        ping: dbPing?.[0] || null
+      },
+      pollers: getPollerHealth(),
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(503).json({
+      ok: false,
+      uptimeSeconds: Math.round(process.uptime()),
+      error: error.message,
+      pollers: getPollerHealth(),
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 // Register API routes
@@ -55,6 +80,8 @@ try {
     startPoller(phase.id);
     console.log(`Resumed background supervisor poller for phase #${phase.id}`);
   }
+  // Immediately scan GitHub for open PRs on running tasks (catches PRs opened while server was down)
+  startupGitHubScan().then(() => console.log('[StartupScan] GitHub PR scan complete.')).catch(e => console.warn('[StartupScan] Error:', e.message));
 } catch (error) {
   console.error('Failed to resume active pollers on startup:', error);
 }
@@ -105,4 +132,3 @@ server.listen(PORT, async () => {
     }
   }
 });
-

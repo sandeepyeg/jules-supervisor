@@ -289,19 +289,10 @@ router.post('/:id/sync', portalAuth, async (req, res) => {
     if (!phase) {
       return res.status(404).json({ error: 'Phase not found' });
     }
-    
-    // Process active running/open PR sessions immediately
-    const activeTasks = await queries.getActiveTasks(phaseId);
-    for (const task of activeTasks) {
-      if (task.status === 'waiting_answer') continue;
-      const sessionHandler = await import('../core/sessionHandler.js');
-      await sessionHandler.handleSession(task);
-    }
-    
-    // Start ready tasks
-    await taskManager.startReadyTasks(phaseId, phase.phase_branch);
-    
-    res.json({ synced: true });
+
+    const result = await poller.runPollCycle(phaseId);
+
+    res.json({ synced: true, result });
   } catch (error) {
     console.error('Error syncing phase:', error);
     res.status(500).json({ error: error.message });

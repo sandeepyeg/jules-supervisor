@@ -5,6 +5,7 @@ import { pool, resetInMemoryDb, useMockDb, inMemoryDb } from '../src/db/connecti
 import * as queries from '../src/db/queries.js';
 import * as prReviewer from '../src/core/prReviewer.js';
 import * as poller from '../src/core/poller.js';
+import * as sessionHandler from '../src/core/sessionHandler.js';
 import { bot } from '../src/services/telegram.js';
 import * as github from '../src/services/github.js';
 import * as jules from '../src/services/jules.js';
@@ -531,6 +532,29 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     assert.strictEqual(responseBody.error, 'PR is closed but was not merged.');
 
     // Restore state
+    mockPRState = 'open';
+  });
+
+  await t.test('session reconciliation marks closed unmerged PR as failed', async () => {
+    mockPRBase = 'feature/phase-10';
+    mockPRMerged = false;
+    mockPRState = 'closed';
+    sentTelegramMessages.length = 0;
+
+    await queries.updateTaskStatus(task1Id, 'pr_open', {
+      pr_number: 101,
+      pr_url: 'https://github.com/mock/pull/101'
+    });
+
+    const task = await queries.getTask(task1Id);
+    await sessionHandler.handleSession(task);
+
+    const updatedTask = await queries.getTask(task1Id);
+    assert.strictEqual(updatedTask.status, 'failed');
+    assert.strictEqual(updatedTask.pr_number, 101);
+    assert.ok(sentTelegramMessages.some(message => message.text.includes('closed without being merged')));
+
+    mockPRMerged = true;
     mockPRState = 'open';
   });
 

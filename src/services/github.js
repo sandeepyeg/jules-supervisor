@@ -205,10 +205,51 @@ export async function getPR(prNumber) {
     state: data.state,
     merged: data.merged,
     mergeable: data.mergeable,
+    mergeable_state: data.mergeable_state,
+    draft: data.draft,
     changed_files: data.changed_files,
     additions: data.additions,
     deletions: data.deletions
   };
+}
+
+/**
+ * Lists all open PRs targeting a specific base branch.
+ */
+export async function getPRsForBranch(baseBranch) {
+  const repoUrl = getRepoUrl();
+  const url = `${repoUrl}/pulls?state=open&base=${encodeURIComponent(baseBranch)}&per_page=100`;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: getHeaders()
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to list PRs for branch ${baseBranch}: ${response.statusText} - ${errText}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Finds an open PR on GitHub whose head branch contains the task's Jules session ID.
+ * This is the primary GitHub-first PR detection mechanism used when Jules session
+ * is still IN_PROGRESS but the PR was already opened.
+ */
+export async function findOpenPRForTask(sessionId, baseBranch) {
+  try {
+    const prs = await getPRsForBranch(baseBranch);
+    // Jules names branches with the session ID embedded in the head ref
+    const match = prs.find(pr =>
+      pr.head?.ref?.includes(String(sessionId)) ||
+      pr.head?.ref?.includes(sessionId.toString().substring(0, 16))
+    );
+    return match || null;
+  } catch (err) {
+    console.warn(`findOpenPRForTask error for session ${sessionId}:`, err.message);
+    return null;
+  }
 }
 
 /**

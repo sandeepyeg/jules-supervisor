@@ -295,11 +295,16 @@ Check this diff chunk against the task requirements. The response must be strict
       null
     );
 
-    if (approved || TASK_AUTO_MERGE_TO_PHASE_BRANCH) {
+    if (approved) {
       // Determine if we can auto-merge:
       // If targeting a phase branch (not main) and TASK_AUTO_MERGE_TO_PHASE_BRANCH is true
       const isTargetingPhaseBranch = baseBranch === phase.phase_branch && baseBranch !== 'main';
-      const canAutoMerge = TASK_AUTO_MERGE_TO_PHASE_BRANCH && isTargetingPhaseBranch && checksStatus !== 'failing';
+      const canAutoMerge = (
+        TASK_AUTO_MERGE_TO_PHASE_BRANCH &&
+        isTargetingPhaseBranch &&
+        checksStatus !== 'failing' &&
+        finalRiskLevel !== 'high'
+      );
 
       if (canAutoMerge) {
         console.log(`Approving PR #${task.pr_number}...`);

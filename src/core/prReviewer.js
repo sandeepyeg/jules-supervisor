@@ -2,10 +2,11 @@ import * as github from '../services/github.js';
 import * as ai from '../services/ai.js';
 import * as jules from '../services/jules.js';
 import * as telegram from '../services/telegram.js';
-import { updateTaskStatus, logQA, getPhase, getQueuedReadyTasks } from '../db/queries.js';
+import { updateTaskStatus, logQA, hasQALogEntry, getPhase, getQueuedReadyTasks } from '../db/queries.js';
 import {
   TASK_AUTO_MERGE_TO_PHASE_BRANCH,
   NEVER_MERGE_TO_MAIN,
+  BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH,
   MAX_PR_DIFF_CHARS,
   PR_REVIEW_CHUNK_CHARS,
   STRONG_REVIEW_PROVIDER,
@@ -21,9 +22,9 @@ import {
  */
 export function detectRisk(filenames, diff) {
   const highRiskPatterns = [
-    /auth/i, /security/i, /login/i, /migration/i, /schema/i, /\.sql$/i,
+    /auth/i, /security/i, /login/i, /(^|[/_.-])migrations?([/_.-]|$)|\bmigration\b/i, /schema/i, /\.sql$/i,
     /\.env/i, /config/i, /secrets?/i, /github/i, /jules/i, /telegram/i,
-    /api/i, /wrapper/i, /merge/i, /jupiter/i, /form/i, /generation/i,
+    /wrapper/i, /merge/i, /jupiter/i, /form/i, /generation/i,
     /supported/i, /auto-submit/i, /government/i, /portal/i, /automation/i
   ];
 
@@ -44,6 +45,26 @@ export function detectRisk(filenames, diff) {
   }
 
   return 'low';
+}
+
+async function sendReviewNotificationOnce(task, pr, outcome, sendNotification) {
+  const sha = pr.head?.sha || 'unknown-sha';
+  const marker = `[PR Review Notification] PR #${pr.number} ${sha} ${outcome}`;
+
+  try {
+    const alreadySent = await hasQALogEntry(task.id, marker);
+    if (alreadySent) {
+      console.log(`Skipping duplicate PR notification marker: ${marker}`);
+      return false;
+    }
+
+    await sendNotification();
+    await logQA(task.id, marker, 'Notification sent.', 'system', null);
+    return true;
+  } catch (error) {
+    console.warn(`PR notification marker failed for ${marker}:`, error.message);
+    return false;
+  }
 }
 
 /**
@@ -68,9 +89,6 @@ export async function reviewAndMerge(task) {
       
       const correction = `Your PR targets ${baseBranch}. Retarget the PR to ${phase.phase_branch}. The supervisor is not allowed to merge into main.`;
       
-      // Send Jules correction
-      await jules.sendMessage(task.jules_session_id, correction);
-      
       // Update QA log
       await logQA(
         task.id,
@@ -80,13 +98,15 @@ export async function reviewAndMerge(task) {
         null
       );
       
-      // Send Telegram notification
-      await telegram.sendPRBlockedNotification({
-        taskTitle: task.title,
-        prUrl: pr.html_url || task.pr_url,
-        riskLevel: 'low',
-        blockingReason: `PR targets base branch "${baseBranch}" instead of "${phase.phase_branch}"`,
-        julesFix: `Retarget the PR to ${phase.phase_branch}`
+      await sendReviewNotificationOnce(task, pr, 'wrong-branch', async () => {
+        await jules.sendMessage(task.jules_session_id, correction);
+        await telegram.sendPRBlockedNotification({
+          taskTitle: task.title,
+          prUrl: pr.html_url || task.pr_url,
+          riskLevel: 'low',
+          blockingReason: `PR targets base branch "${baseBranch}" instead of "${phase.phase_branch}"`,
+          julesFix: `Retarget the PR to ${phase.phase_branch}`
+        });
       });
 
       // Keep task status as pr_open
@@ -99,12 +119,6 @@ export async function reviewAndMerge(task) {
       console.log(`PR #${task.pr_number} has merge conflicts with target branch "${phase.phase_branch}". Requesting rebase from Jules.`);
       
       const rebaseInstruction = `Your PR has merge conflicts with target branch ${phase.phase_branch}. Please fetch the latest commits from ${phase.phase_branch}, resolve any merge conflicts, and push an updated commit.`;
-      try {
-        await jules.sendMessage(task.jules_session_id, rebaseInstruction);
-      } catch (sendErr) {
-        console.warn('Failed to send rebase instruction to Jules:', sendErr.message);
-      }
-      
       await logQA(
         task.id,
         `[PR Review Command] PR #${task.pr_number}`,
@@ -113,12 +127,19 @@ export async function reviewAndMerge(task) {
         null
       );
 
-      await telegram.sendPRBlockedNotification({
-        taskTitle: task.title,
-        prUrl: pr.html_url || task.pr_url,
-        riskLevel: 'high',
-        blockingReason: `PR has Git merge conflicts with ${phase.phase_branch}`,
-        julesFix: `Rebase instruction sent to Jules to fetch ${phase.phase_branch} and resolve conflicts`
+      await sendReviewNotificationOnce(task, pr, 'merge-conflicts', async () => {
+        try {
+          await jules.sendMessage(task.jules_session_id, rebaseInstruction);
+        } catch (sendErr) {
+          console.warn('Failed to send rebase instruction to Jules:', sendErr.message);
+        }
+        await telegram.sendPRBlockedNotification({
+          taskTitle: task.title,
+          prUrl: pr.html_url || task.pr_url,
+          riskLevel: 'high',
+          blockingReason: `PR has Git merge conflicts with ${phase.phase_branch}`,
+          julesFix: `Rebase instruction sent to Jules to fetch ${phase.phase_branch} and resolve conflicts`
+        });
       });
 
       await updateTaskStatus(task.id, 'pr_open');
@@ -133,12 +154,14 @@ export async function reviewAndMerge(task) {
     if (rawDiff.length > MAX_PR_DIFF_CHARS) {
       console.warn(`PR diff length (${rawDiff.length}) exceeds MAX_PR_DIFF_CHARS (${MAX_PR_DIFF_CHARS}). Blocking and requesting human review.`);
       await updateTaskStatus(task.id, 'pr_open');
-      await telegram.sendPRBlockedNotification({
-        taskTitle: task.title,
-        prUrl: task.pr_url || `https://github.com/sandeepyeg/project-jupitor/pull/${task.pr_number}`,
-        riskLevel: 'high',
-        blockingReason: `PR diff size (${rawDiff.length} chars) exceeds the maximum allowed limit of ${MAX_PR_DIFF_CHARS} chars.`,
-        julesFix: 'Manual human review and merge required'
+      await sendReviewNotificationOnce(task, pr, 'diff-too-large', async () => {
+        await telegram.sendPRBlockedNotification({
+          taskTitle: task.title,
+          prUrl: task.pr_url || `https://github.com/sandeepyeg/project-jupitor/pull/${task.pr_number}`,
+          riskLevel: 'high',
+          blockingReason: `PR diff size (${rawDiff.length} chars) exceeds the maximum allowed limit of ${MAX_PR_DIFF_CHARS} chars.`,
+          julesFix: 'Manual human review and merge required'
+        });
       });
       return { merged: false, approved: false, reason: 'PR diff size exceeds maximum allowed limit' };
     }
@@ -303,7 +326,7 @@ Check this diff chunk against the task requirements. The response must be strict
         TASK_AUTO_MERGE_TO_PHASE_BRANCH &&
         isTargetingPhaseBranch &&
         checksStatus !== 'failing' &&
-        finalRiskLevel !== 'high'
+        (!BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH || finalRiskLevel !== 'high')
       );
 
       if (canAutoMerge) {
@@ -327,12 +350,13 @@ Check this diff chunk against the task requirements. The response must be strict
         
         return { merged: true };
       } else {
-        console.log(`PR #${task.pr_number} is approved but blocked from auto-merge. AutoMergeEnabled=${TASK_AUTO_MERGE_TO_PHASE_BRANCH}, Risk=${finalRiskLevel}, Checks=${checksStatus}`);
+        console.log(`PR #${task.pr_number} is approved but blocked from auto-merge. AutoMergeEnabled=${TASK_AUTO_MERGE_TO_PHASE_BRANCH}, BlockHighRisk=${BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH}, Risk=${finalRiskLevel}, Checks=${checksStatus}`);
         
-        // Notify Telegram that the PR is ready for human review
-        await telegram.sendPRReadyNotification({
-          taskTitle: task.title,
-          prUrl: pr.html_url || task.pr_url
+        await sendReviewNotificationOnce(task, pr, `ready-${finalRiskLevel}-${checksStatus}`, async () => {
+          await telegram.sendPRReadyNotification({
+            taskTitle: task.title,
+            prUrl: pr.html_url || task.pr_url
+          });
         });
 
         // Keep task status as pr_open
@@ -343,15 +367,15 @@ Check this diff chunk against the task requirements. The response must be strict
       console.log(`PR #${task.pr_number} rejected. Requesting revision from Jules...`);
       const revisionPrompt = `Please revise. The following issues were found:\n${blockingIssues.concat(missingRequirements).join('\n')}\n${followUpInstructions.join('\n')}`;
       
-      await jules.sendMessage(task.jules_session_id, revisionPrompt);
-      
-      // Send Telegram notification
-      await telegram.sendPRBlockedNotification({
-        taskTitle: task.title,
-        prUrl: pr.html_url || task.pr_url,
-        riskLevel: finalRiskLevel,
-        blockingReason: blockingText || 'Failing verification requirements',
-        julesFix: 'Review blocking issues and update the PR'
+      await sendReviewNotificationOnce(task, pr, `rejected-${finalRiskLevel}`, async () => {
+        await jules.sendMessage(task.jules_session_id, revisionPrompt);
+        await telegram.sendPRBlockedNotification({
+          taskTitle: task.title,
+          prUrl: pr.html_url || task.pr_url,
+          riskLevel: finalRiskLevel,
+          blockingReason: blockingText || 'Failing verification requirements',
+          julesFix: 'Review blocking issues and update the PR'
+        });
       });
 
       // Update task status back to running

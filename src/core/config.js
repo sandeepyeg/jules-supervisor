@@ -11,6 +11,7 @@ export let AI_CONFIDENCE_THRESHOLD = parseFloat(process.env.AI_CONFIDENCE_THRESH
 export let TASK_AUTO_MERGE_TO_PHASE_BRANCH = process.env.TASK_AUTO_MERGE_TO_PHASE_BRANCH === 'true'; // default false
 export let NEVER_MERGE_TO_MAIN = process.env.NEVER_MERGE_TO_MAIN !== 'false'; // default true
 export let HUMAN_APPROVAL_REQUIRED_FOR_MAIN = process.env.HUMAN_APPROVAL_REQUIRED_FOR_MAIN !== 'false'; // default true
+export let BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH = process.env.BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH === 'true'; // default false
 export let CREATE_FINAL_DRAFT_PR = process.env.CREATE_FINAL_DRAFT_PR === 'true'; // default false
 
 export let MAX_PR_DIFF_CHARS = parseInt(process.env.MAX_PR_DIFF_CHARS || '120000', 10);
@@ -32,6 +33,7 @@ export function reloadConfig() {
   TASK_AUTO_MERGE_TO_PHASE_BRANCH = process.env.TASK_AUTO_MERGE_TO_PHASE_BRANCH === 'true';
   NEVER_MERGE_TO_MAIN = process.env.NEVER_MERGE_TO_MAIN !== 'false';
   HUMAN_APPROVAL_REQUIRED_FOR_MAIN = process.env.HUMAN_APPROVAL_REQUIRED_FOR_MAIN !== 'false';
+  BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH = process.env.BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH === 'true';
   CREATE_FINAL_DRAFT_PR = process.env.CREATE_FINAL_DRAFT_PR === 'true';
 
   MAX_PR_DIFF_CHARS = parseInt(process.env.MAX_PR_DIFF_CHARS || '120000', 10);

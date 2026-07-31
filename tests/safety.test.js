@@ -35,6 +35,7 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
   let mockPRMerged = true;
   let mockPRState = 'open';
   let mockPRChecksState = 'passing';
+  let mockPRStatusTotalCount = 1;
   let approveCalled = false;
   let mergeCalled = false;
   let mockPRDiff = 'diff --git a/src/core/env.js b/src/core/env.js\n+console.log("changes");';
@@ -77,6 +78,14 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
 
     // GitHub Mock
     if (checkUrl.includes('api.github.com')) {
+      if (checkUrl.includes('/reviews') && options.method === 'POST') {
+        approveCalled = true;
+        return { ok: true, json: async () => ({}) };
+      }
+      if (checkUrl.includes('/merge') && options.method === 'PUT') {
+        mergeCalled = true;
+        return { ok: true, json: async () => ({}) };
+      }
       if (checkUrl.includes('/pulls/') && checkUrl.includes('/files')) {
         return {
           ok: true,
@@ -111,7 +120,10 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
       if (checkUrl.includes('/commits/sha123/status')) {
         return {
           ok: true,
-          json: async () => ({ state: mockPRChecksState === 'passing' ? 'success' : 'failure' })
+          json: async () => ({
+            state: mockPRChecksState === 'passing' ? 'success' : 'failure',
+            total_count: mockPRStatusTotalCount
+          })
         };
       }
       if (checkUrl.includes('/commits/sha123/check-runs')) {
@@ -119,14 +131,6 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
           ok: true,
           json: async () => ({ check_runs: [] })
         };
-      }
-      if (checkUrl.includes('/reviews') && options.method === 'POST') {
-        approveCalled = true;
-        return { ok: true, json: async () => ({}) };
-      }
-      if (checkUrl.includes('/merge') && options.method === 'PUT') {
-        mergeCalled = true;
-        return { ok: true, json: async () => ({}) };
       }
     }
 
@@ -273,13 +277,59 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     assert.ok(sentTelegramMessages[0].text.includes('Ready for Review'));
   });
 
-  await t.test('High-risk PR never auto-merges and alerts Telegram', async () => {
+  await t.test('High-risk approved PR auto-merges into phase branch by default', async () => {
     mockPRBase = 'feature/phase-10';
     mockAIResponse.approved = true;
     mockAIResponse.riskLevel = 'high'; // AI flags it high risk
+    mockAIResponse.missingRequirements = [];
+    mockAIResponse.blockingIssues = [];
+    mockAIResponse.testEvidence = 'Tests verified and passing';
     mockPRFiles = [{ filename: 'src/core/auth.js' }]; // triggers file name risk logic
 
-    process.env.TASK_AUTO_MERGE_TO_PHASE_BRANCH = 'true'; // even if auto-merge is enabled
+    process.env.TASK_AUTO_MERGE_TO_PHASE_BRANCH = 'true';
+    process.env.BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH = 'false';
+    reloadConfig();
+
+    const task = {
+      id: task1Id,
+      phase_id: phaseId,
+      title: 'Safety Test Task',
+      description: 'Configure new auth environment wrapper',
+      pr_number: 101,
+      jules_session_id: 'session_xyz',
+      pr_url: 'https://github.com/mock/pull/101'
+    };
+
+    sentTelegramMessages.length = 0;
+    approveCalled = false;
+    mergeCalled = false;
+    await queries.updateTaskStatus(task1Id, 'running');
+
+    const reviewResult = await prReviewer.reviewAndMerge(task);
+
+    assert.strictEqual(reviewResult.merged, true);
+    assert.strictEqual(approveCalled, true);
+    assert.strictEqual(mergeCalled, true);
+
+    const updatedTask = await queries.getTask(task1Id);
+    assert.strictEqual(updatedTask.status, 'merged');
+
+    assert.ok(sentTelegramMessages.length > 0);
+    assert.ok(sentTelegramMessages[0].text.includes('Merged'));
+    assert.ok(sentTelegramMessages[0].text.includes('Please verify this phase before the final main merge'));
+  });
+
+  await t.test('High-risk block flag prevents auto-merge and alerts Telegram', async () => {
+    mockPRBase = 'feature/phase-10';
+    mockAIResponse.approved = true;
+    mockAIResponse.riskLevel = 'high';
+    mockAIResponse.missingRequirements = [];
+    mockAIResponse.blockingIssues = [];
+    mockAIResponse.testEvidence = 'Tests verified and passing';
+    mockPRFiles = [{ filename: 'src/core/auth.js' }];
+
+    process.env.TASK_AUTO_MERGE_TO_PHASE_BRANCH = 'true';
+    process.env.BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH = 'true';
     reloadConfig();
 
     const task = {
@@ -307,7 +357,10 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     assert.strictEqual(updatedTask.status, 'pr_open');
 
     assert.ok(sentTelegramMessages.length > 0);
-    assert.ok(sentTelegramMessages[0].text.includes('Ready for Review') || sentTelegramMessages[0].text.includes('Blocked by Supervisor'));
+    assert.ok(sentTelegramMessages[0].text.includes('Ready for Review'));
+
+    process.env.BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH = 'false';
+    reloadConfig();
   });
 
   await t.test('Missing tests/testEvidence blocks approval', async () => {
@@ -411,6 +464,45 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     // Restore config
     process.env.MAX_PR_DIFF_CHARS = '120000';
     reloadConfig();
+  });
+
+  await t.test('GitHub combined status with zero statuses is not treated as failing CI', async () => {
+    mockPRChecksState = 'failing';
+    mockPRStatusTotalCount = 0;
+
+    const checksStatus = await github.getPRChecks(101);
+    assert.strictEqual(checksStatus, 'passing');
+
+    mockPRChecksState = 'passing';
+    mockPRStatusTotalCount = 1;
+  });
+
+  await t.test('ordinary apps/api backend files are not automatically high risk', async () => {
+    const risk = prReviewer.detectRisk([
+      'apps/api/src/ImmigrationApp.Application/Abstractions/Operations/Queues/IBackgroundQueueObservationService.cs',
+      'apps/api/src/ImmigrationApp.Infrastructure/Operations/DapperBackgroundQueueObservationService.cs',
+      'apps/api/tests/ImmigrationApp.UnitTests/Operations/Queues/DapperBackgroundQueueObservationServiceTests.cs'
+    ], 'diff --git a/file b/file\n+queue observation service');
+
+    assert.strictEqual(risk, 'low');
+  });
+
+  await t.test('manual poller pause persists until resume', async () => {
+    const pausedPhaseId = 999999;
+
+    poller.stopPoller(pausedPhaseId, { manual: true });
+
+    let health = poller.getPollerHealth();
+    assert.ok(health.manuallyPausedPhaseIds.includes(pausedPhaseId));
+
+    const skipped = await poller.runPollCycle(pausedPhaseId);
+    assert.deepStrictEqual(skipped, { skipped: true, reason: 'manually_paused' });
+
+    poller.resumePoller(pausedPhaseId);
+    health = poller.getPollerHealth();
+    assert.ok(!health.manuallyPausedPhaseIds.includes(pausedPhaseId));
+
+    poller.stopPoller(pausedPhaseId);
   });
 
   await t.test('manual mark-merged rejects PR targeting main', async () => {

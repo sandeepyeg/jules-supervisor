@@ -12,6 +12,7 @@ import {
 // Keep track of active interval references by phase ID so we can stop them if needed
 const activePollers = new Map();
 const activePollRuns = new Set();
+const manuallyPausedPollers = new Set();
 
 /**
  * Watchdog: runs every 2 minutes and auto-revives any dead pollers for active phases.
@@ -21,6 +22,9 @@ setInterval(async () => {
   try {
     const [activePhases] = await (await import('../db/connection.js')).pool.query("SELECT id FROM phases WHERE status = 'active'");
     for (const phase of activePhases) {
+      if (manuallyPausedPollers.has(phase.id)) {
+        continue;
+      }
       if (!activePollers.has(phase.id)) {
         console.log(`[Watchdog] Poller for phase #${phase.id} is dead. Auto-reviving...`);
         startPoller(phase.id);
@@ -34,11 +38,17 @@ setInterval(async () => {
 export function getPollerHealth() {
   return {
     activePhaseIds: [...activePollers.keys()],
-    inFlightPhaseIds: [...activePollRuns.values()]
+    inFlightPhaseIds: [...activePollRuns.values()],
+    manuallyPausedPhaseIds: [...manuallyPausedPollers.values()]
   };
 }
 
 export async function runPollCycle(phaseId) {
+  if (manuallyPausedPollers.has(phaseId)) {
+    console.log(`Phase ${phaseId} poller is manually paused. Skipping poll cycle.`);
+    return { skipped: true, reason: 'manually_paused' };
+  }
+
   if (activePollRuns.has(phaseId)) {
     console.log(`Poll cycle already running for phase ${phaseId}. Skipping overlapping run.`);
     return { skipped: true, reason: 'already_running' };
@@ -127,6 +137,8 @@ export async function runPollCycle(phaseId) {
  * Starts the periodic poller for a given phase ID.
  */
 export function startPoller(phaseId) {
+  manuallyPausedPollers.delete(phaseId);
+
   // If there's already a poller for this phase, return it
   if (activePollers.has(phaseId)) {
     return activePollers.get(phaseId);
@@ -172,12 +184,21 @@ async function sendReminders() {
 /**
  * Stops the poller for a given phase ID.
  */
-export function stopPoller(phaseId) {
+export function stopPoller(phaseId, options = {}) {
+  if (options.manual) {
+    manuallyPausedPollers.add(phaseId);
+  }
+
   if (activePollers.has(phaseId)) {
-    console.log(`Stopping poller for phase ${phaseId} manually.`);
+    console.log(`Stopping poller for phase ${phaseId}${options.manual ? ' manually' : ''}.`);
     clearInterval(activePollers.get(phaseId));
     activePollers.delete(phaseId);
   }
+}
+
+export function resumePoller(phaseId) {
+  manuallyPausedPollers.delete(phaseId);
+  return startPoller(phaseId);
 }
 
 /**

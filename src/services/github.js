@@ -306,7 +306,11 @@ export async function getPRChecks(prNumber) {
     let statusState = 'unknown';
     if (statusResponse.ok) {
       const statusData = await statusResponse.json();
-      statusState = statusData.state; // failure, pending, success, or error
+      // GitHub returns "pending" for the combined status when no statuses exist.
+      // Treat that as unknown so repos without CI do not look like failing CI.
+      if (Number(statusData.total_count || 0) > 0) {
+        statusState = statusData.state; // failure, pending, success, or error
+      }
     }
 
     // 2. Check runs

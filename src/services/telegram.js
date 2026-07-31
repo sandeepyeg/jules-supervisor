@@ -156,7 +156,7 @@ if (!token || token.startsWith('your_')) {
           return;
         }
         const poller = await import('../core/poller.js');
-        poller.stopPoller(phase.id);
+        poller.stopPoller(phase.id, { manual: true });
         await bot.sendMessage(chatId, `⏸ Supervisor poller paused for Phase "${phase.title}".`, {
           reply_markup: TELEGRAM_MAIN_KEYBOARD
         });
@@ -177,7 +177,7 @@ if (!token || token.startsWith('your_')) {
           return;
         }
         const poller = await import('../core/poller.js');
-        poller.startPoller(phase.id);
+        poller.resumePoller(phase.id);
         await bot.sendMessage(chatId, `▶️ Supervisor poller resumed for Phase "${phase.title}".`, {
           reply_markup: TELEGRAM_MAIN_KEYBOARD
         });
@@ -344,7 +344,7 @@ export async function sendPRCreatedNotification(taskTitle, taskId, prUrl) {
  * Sends an alert when a task PR is merged into phase branch.
  */
 export async function sendTaskMergedNotification(taskTitle, taskId, prUrl, phaseBranch, nextTaskTitle) {
-  const formatted = `✅ Task #${taskId} Merged\n\nTask: ${taskTitle}\nPR URL: ${prUrl || 'N/A'}\nBranch: ${phaseBranch}\n\n${nextTaskTitle ? `Next task starting: "${nextTaskTitle}"` : 'All phase tasks completed!'}`;
+  const formatted = `✅ Task #${taskId} Merged\n\nTask: ${taskTitle}\nPR URL: ${prUrl || 'N/A'}\nBranch: ${phaseBranch}\n\nMerged into the phase branch automatically. Please verify this phase before the final main merge.\n\n${nextTaskTitle ? `Next task starting: "${nextTaskTitle}"` : 'All phase tasks completed!'}`;
   const options = {
     reply_markup: {
       inline_keyboard: [

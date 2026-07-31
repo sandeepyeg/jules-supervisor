@@ -149,6 +149,17 @@ export async function logQA(taskId, question, answer, answeredBy, confidenceScor
 }
 
 /**
+ * Checks whether a QA/system marker already exists for a task.
+ */
+export async function hasQALogEntry(taskId, question) {
+  const [rows] = await pool.query(
+    'SELECT id FROM qa_log WHERE task_id = ? AND jules_question = ? LIMIT 1',
+    [taskId, question]
+  );
+  return rows.length > 0;
+}
+
+/**
  * Logs an unresolved Telegram escalation for a task.
  */
 export async function createTelegramPending(taskId, question, telegramMessageId) {

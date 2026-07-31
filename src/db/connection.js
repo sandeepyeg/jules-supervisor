@@ -148,6 +148,12 @@ export function mockQuery(sql, params = []) {
     return [inMemoryDb.qa_log.filter(q => q.task_id === params[0]).sort((a, b) => b.id - a.id)];
   }
 
+  // SELECT id FROM qa_log WHERE task_id = ? AND jules_question = ? LIMIT 1
+  if (sqlNormalized.startsWith('SELECT id FROM qa_log WHERE task_id = ? AND jules_question = ?')) {
+    const res = inMemoryDb.qa_log.find(q => q.task_id === params[0] && q.jules_question === params[1]);
+    return [res ? [{ id: res.id }] : []];
+  }
+
   // SELECT q.*, t.title as task_title FROM qa_log q JOIN tasks t ON q.task_id = t.id WHERE t.phase_id = ? ORDER BY q.created_at DESC
   if (sqlNormalized.includes('FROM qa_log q JOIN tasks t ON q.task_id = t.id WHERE t.phase_id = ?')) {
     const logs = [];

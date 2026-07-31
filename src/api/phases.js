@@ -5,6 +5,7 @@ import * as github from '../services/github.js';
 import * as taskManager from '../core/taskManager.js';
 import * as poller from '../core/poller.js';
 import { portalAuth } from './auth.js';
+import { MAX_AUTO_REVISION_ATTEMPTS } from '../core/config.js';
 
 const router = express.Router();
 
@@ -24,12 +25,13 @@ router.get('/', portalAuth, async (req, res) => {
 
 /**
  * GET /api/phases/config
- * Exposes non-secret GitHub metadata for the frontend (owner/repo).
+ * Exposes non-secret metadata for the frontend (GitHub owner/repo, review tunables).
  */
 router.get('/config', portalAuth, (req, res) => {
   res.json({
     githubOwner: process.env.GITHUB_OWNER || '',
     githubRepo:  process.env.GITHUB_REPO  || '',
+    maxAutoRevisionAttempts: MAX_AUTO_REVISION_ATTEMPTS,
   });
 });
 

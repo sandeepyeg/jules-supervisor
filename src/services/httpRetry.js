@@ -1,4 +1,5 @@
 import nodeFetch from 'node-fetch';
+import { recordRetry } from '../core/metrics.js';
 
 const baseFetch = (...args) => (globalThis.__mockFetch || nodeFetch)(...args);
 
@@ -29,6 +30,7 @@ export async function fetchWithRetry(url, options = {}, retryOptions = {}) {
       const response = await baseFetch(url, options);
       if (!response.ok && RETRYABLE_STATUS_CODES.has(response.status) && !isLastAttempt) {
         console.warn(`Retryable HTTP ${response.status} from ${url} (attempt ${attempt + 1}/${maxRetries + 1}). Retrying...`);
+        recordRetry();
         await delay(baseDelayMs * 2 ** attempt);
         continue;
       }
@@ -39,6 +41,7 @@ export async function fetchWithRetry(url, options = {}, retryOptions = {}) {
         throw err;
       }
       console.warn(`Network error calling ${url} (attempt ${attempt + 1}/${maxRetries + 1}): ${err.message}. Retrying...`);
+      recordRetry();
       await delay(baseDelayMs * 2 ** attempt);
     }
   }

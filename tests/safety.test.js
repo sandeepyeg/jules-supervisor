@@ -12,6 +12,7 @@ import * as jules from '../src/services/jules.js';
 import { reloadConfig } from '../src/core/config.js';
 import tasksRouter from '../src/api/tasks.js';
 import phasesRouter from '../src/api/phases.js';
+import statusRouter from '../src/api/status.js';
 import { getPortalSecret } from '../src/api/auth.js';
 
 test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
@@ -904,6 +905,7 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     assert.ok(requestChangesBodies[0].includes('round 1/2'));
     let updated = await queries.getTask(task1Id);
     assert.strictEqual(updated.pr_revision_count, 1);
+    assert.ok(!updated.escalated, 'must not be flagged escalated before the cap is reached');
 
     // Round 2: Jules pushed a new commit (new sha), still rejected — second and final auto-revision round.
     mockPRSha = 'sha-revision-round-2';
@@ -915,6 +917,7 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     assert.ok(requestChangesBodies[1].includes('round 2/2'));
     updated = await queries.getTask(task1Id);
     assert.strictEqual(updated.pr_revision_count, 2);
+    assert.ok(!updated.escalated);
 
     // Round 3: another new commit, still rejected — cap reached, Jules is NOT messaged again.
     mockPRSha = 'sha-revision-round-3';
@@ -929,6 +932,19 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     assert.ok(sentTelegramMessages.some(m => m.text.includes('Auto-review limit reached')));
     updated = await queries.getTask(task1Id);
     assert.strictEqual(updated.pr_revision_count, 2, 'revision count must not climb past the cap');
+    assert.strictEqual(updated.escalated, true, 'DB must persist the escalated flag once the cap is reached');
+
+    // Round 4: Jules (or a human) fixed it on a new commit — the task is no longer stuck.
+    mockPRSha = 'sha-revision-round-4';
+    mockAIResponse.approved = true;
+    mockAIResponse.blockingIssues = [];
+    mockAIResponse.testEvidence = 'Tests verified and passing';
+    task = await queries.getTask(task1Id);
+    julesMessages.length = 0;
+    result = await prReviewer.reviewAndMerge(task);
+    assert.strictEqual(julesMessages.length, 0, 'an approved review should never message Jules');
+    updated = await queries.getTask(task1Id);
+    assert.strictEqual(updated.escalated, false, 'escalated flag must clear once the PR is approved again');
   });
 
   await t.test('advisory notes never block merge and are never sent to Jules', async () => {
@@ -1017,5 +1033,134 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     assert.notStrictEqual(updated.last_review_verdict, '{"stale":"verdict from a different PR"}');
 
     mockOpenPRsForBranch = [];
+  });
+
+  await t.test('POST /api/tasks/:id/force-review clears the cache and re-runs the AI review immediately', async () => {
+    mockPRBase = 'feature/phase-10';
+    mockPRMergeable = true;
+    mockPRState = 'open';
+    mockPRMerged = false;
+    mockPRChecksState = 'passing';
+    mockPRStatusTotalCount = 1;
+    mockPRSha = 'sha-force-review-test';
+    mockAIResponse.approved = true;
+    mockAIResponse.riskLevel = 'low';
+    mockAIResponse.missingRequirements = [];
+    mockAIResponse.blockingIssues = [];
+    mockAIResponse.advisoryNotes = [];
+    mockAIResponse.testEvidence = 'Tests verified and passing';
+    mockPRFiles = [{ filename: 'src/core/env.js' }];
+
+    await queries.updateTaskStatus(task1Id, 'pr_open', {
+      pr_number: 101,
+      pr_revision_count: 1,
+      last_reviewed_sha: 'sha-force-review-test',
+      last_review_verdict: JSON.stringify({
+        approved: false,
+        finalRiskLevel: 'low',
+        summaries: ['stale cached rejection'],
+        missingRequirements: [],
+        filesReviewed: [],
+        testEvidences: [],
+        blockingIssues: ['stale cached blocking issue'],
+        followUpInstructions: [],
+        advisoryNotes: []
+      })
+    });
+
+    const callsBefore = aiCallCount;
+
+    const req = {
+      method: 'POST',
+      url: `/${task1Id}/force-review`,
+      params: { id: String(task1Id) },
+      headers: { 'x-portal-key': getPortalSecret() }
+    };
+    let responseStatus = 200;
+    let responseBody = null;
+    const res = {
+      status(code) { responseStatus = code; return this; },
+      json(data) { responseBody = data; return this; }
+    };
+
+    await new Promise((resolve) => {
+      const origJson = res.json;
+      res.json = (data) => {
+        origJson.call(res, data);
+        resolve();
+        return res;
+      };
+      tasksRouter(req, res, () => resolve());
+    });
+
+    assert.strictEqual(responseStatus, 200);
+    assert.ok(aiCallCount > callsBefore, 'force-review must bypass the cache and call the AI again');
+    assert.ok(responseBody.result);
+    // The stale cached rejection must not leak through — it re-reviewed with the fresh (approved) mock response.
+    assert.strictEqual(responseBody.task.last_reviewed_sha, 'sha-force-review-test');
+    assert.notStrictEqual(responseBody.task.last_review_verdict, JSON.stringify({ blockingIssues: ['stale cached blocking issue'] }));
+  });
+
+  await t.test('POST /api/tasks/:id/force-review rejects a task with no PR', async () => {
+    await queries.updateTaskStatus(task2Id, 'queued', { pr_number: null });
+
+    const req = {
+      method: 'POST',
+      url: `/${task2Id}/force-review`,
+      params: { id: String(task2Id) },
+      headers: { 'x-portal-key': getPortalSecret() }
+    };
+    let responseStatus = 200;
+    let responseBody = null;
+    const res = {
+      status(code) { responseStatus = code; return this; },
+      json(data) { responseBody = data; return this; }
+    };
+
+    await new Promise((resolve) => {
+      const origJson = res.json;
+      res.json = (data) => {
+        origJson.call(res, data);
+        resolve();
+        return res;
+      };
+      tasksRouter(req, res, () => resolve());
+    });
+
+    assert.strictEqual(responseStatus, 400);
+    assert.ok(responseBody.error.includes('no associated PR'));
+  });
+
+  await t.test('GET /api/status/metrics reports AI call/retry counts and escalated task count', async () => {
+    const req = {
+      method: 'GET',
+      url: '/metrics',
+      headers: { 'x-portal-key': getPortalSecret() }
+    };
+    let responseStatus = null;
+    let responseBody = null;
+    const res = {
+      status(code) { responseStatus = code; return this; },
+      json(data) { responseBody = data; return this; }
+    };
+
+    await new Promise((resolve) => {
+      const origJson = res.json;
+      res.json = (data) => {
+        origJson.call(res, data);
+        resolve();
+        return res;
+      };
+      statusRouter(req, res, () => resolve());
+    });
+
+    assert.strictEqual(responseStatus, null); // ran and returned JSON successfully
+    assert.ok(responseBody.ai);
+    assert.ok(responseBody.ai.callsTotal > 0, 'earlier tests in this file should have already made AI calls');
+    // The bounded-revision-loop test's round 4 fixes and un-escalates task1, and every
+    // approved-branch path in prReviewer explicitly clears escalated — so by now it's 0.
+    assert.strictEqual(responseBody.escalatedTasksCount, 0);
+    assert.strictEqual(responseBody.maxAutoRevisionAttempts, 2);
+    assert.ok(responseBody.pollers);
   });
 });

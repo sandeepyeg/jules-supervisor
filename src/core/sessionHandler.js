@@ -71,7 +71,8 @@ export async function handleSession(task) {
             // Fresh PR for this task — start its own revision/review-cache lifecycle.
             pr_revision_count: 0,
             last_reviewed_sha: null,
-            last_review_verdict: null
+            last_review_verdict: null,
+            escalated: false
           });
           try {
             await telegram.sendPRCreatedNotification(task.title, task.id, prUrl0);
@@ -246,7 +247,7 @@ export async function handleSession(task) {
           pr_number: prNumber,
           // A genuinely different PR number starts its own revision/review-cache lifecycle
           // — otherwise a counter exhausted on an earlier, abandoned PR would carry over.
-          ...(isDifferentPrNumber ? { pr_revision_count: 0, last_reviewed_sha: null, last_review_verdict: null } : {})
+          ...(isDifferentPrNumber ? { pr_revision_count: 0, last_reviewed_sha: null, last_review_verdict: null, escalated: false } : {})
         });
 
         // Send Telegram PR created alert

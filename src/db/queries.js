@@ -88,6 +88,10 @@ export async function updateTaskStatus(taskId, status, extra = {}) {
     fields.push('nudge_sent = ?');
     values.push(extra.nudge_sent);
   }
+  if (extra.escalated !== undefined) {
+    fields.push('escalated = ?');
+    values.push(extra.escalated);
+  }
 
   values.push(taskId);
   const sql = `UPDATE tasks SET ${fields.join(', ')} WHERE id = ?`;

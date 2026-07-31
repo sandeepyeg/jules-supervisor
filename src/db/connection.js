@@ -63,6 +63,7 @@ export function mockQuery(sql, params = []) {
       newRecord.last_review_verdict = null;
       newRecord.pr_revision_count = 0;
       newRecord.nudge_sent = false;
+      newRecord.escalated = false;
       newRecord.created_at = new Date();
       newRecord.updated_at = new Date();
       inMemoryDb.tasks.push(newRecord);
@@ -168,6 +169,21 @@ export function mockQuery(sql, params = []) {
       }
     }
     return [logs.sort((a, b) => b.created_at - a.created_at)];
+  }
+
+  // SELECT COUNT(*) as pendingCount FROM telegram_pending tp JOIN tasks t ON tp.task_id = t.id WHERE t.phase_id = ? AND tp.resolved = FALSE
+  if (sqlNormalized.includes('as pendingCount FROM telegram_pending')) {
+    const count = inMemoryDb.telegram_pending.filter(p => {
+      const task = inMemoryDb.tasks.find(t => t.id === p.task_id);
+      return task && task.phase_id === params[0] && (p.resolved === 0 || p.resolved === false);
+    }).length;
+    return [[{ pendingCount: count }]];
+  }
+
+  // SELECT COUNT(*) as escalatedCount FROM tasks WHERE escalated = TRUE
+  if (sqlNormalized.includes('as escalatedCount FROM tasks')) {
+    const count = inMemoryDb.tasks.filter(t => t.escalated === true || t.escalated === 1).length;
+    return [[{ escalatedCount: count }]];
   }
 
   // UPDATE phases SET

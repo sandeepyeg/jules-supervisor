@@ -414,7 +414,7 @@ export async function reviewAndMerge(task) {
         await github.mergePR(task.pr_number, task.title, phase.phase_branch);
 
         // Update task to merged status
-        await updateTaskStatus(task.id, 'merged');
+        await updateTaskStatus(task.id, 'merged', { escalated: false });
 
         // Send Telegram notification
         try {
@@ -437,7 +437,7 @@ export async function reviewAndMerge(task) {
         });
 
         // Keep task status as pr_open
-        await updateTaskStatus(task.id, 'pr_open');
+        await updateTaskStatus(task.id, 'pr_open', { escalated: false });
         return { merged: false, reason: 'Auto-merge policies prevented merge' };
       }
     } else {
@@ -507,7 +507,7 @@ ${blockingText || 'See review summary in the supervisor QA log.'}`;
           });
         });
 
-        await updateTaskStatus(task.id, 'pr_open');
+        await updateTaskStatus(task.id, 'pr_open', { escalated: true });
         return { merged: false, reason: blockingText, escalated: true };
       }
     }

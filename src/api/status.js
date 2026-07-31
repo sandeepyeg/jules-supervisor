@@ -2,8 +2,35 @@ import express from 'express';
 import { pool } from '../db/connection.js';
 import * as queries from '../db/queries.js';
 import { portalAuth } from './auth.js';
+import { getMetrics } from '../core/metrics.js';
+import { getPollerHealth } from '../core/poller.js';
+import { MAX_AUTO_REVISION_ATTEMPTS } from '../core/config.js';
 
 const router = express.Router();
+
+/**
+ * GET /api/status/metrics
+ * Lightweight operational visibility: AI call/retry counts since the process started,
+ * poller health, and how many tasks currently need manual attention (auto-review gave up).
+ * Registered before /:phaseId so "metrics" isn't matched as a phase ID.
+ */
+router.get('/metrics', portalAuth, async (req, res) => {
+  try {
+    const [[{ escalatedCount }]] = await pool.query(
+      'SELECT COUNT(*) as escalatedCount FROM tasks WHERE escalated = TRUE'
+    );
+
+    res.json({
+      ...getMetrics(),
+      escalatedTasksCount: escalatedCount,
+      maxAutoRevisionAttempts: MAX_AUTO_REVISION_ATTEMPTS,
+      pollers: getPollerHealth()
+    });
+  } catch (error) {
+    console.error('Error getting metrics:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 /**
  * GET /api/status/:phaseId

@@ -2,6 +2,7 @@ import express from 'express';
 import * as queries from '../db/queries.js';
 import { portalAuth } from './auth.js';
 import * as github from '../services/github.js';
+import * as prReviewer from '../core/prReviewer.js';
 
 const router = express.Router();
 
@@ -126,6 +127,40 @@ router.post('/:id/mark-merged', portalAuth, async (req, res) => {
     res.json(updated);
   } catch (error) {
     console.error(`Error marking task #${taskId} as merged:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/tasks/:id/force-review
+ * Clears the cached AI diff-review verdict for the task's current PR and immediately
+ * re-runs reviewAndMerge, instead of waiting for the next poll cycle to (not) do it —
+ * the cache normally treats an unchanged PR head sha as "already reviewed."
+ * Does not reset pr_revision_count/escalated: this is "look again," not "start over."
+ */
+router.post('/:id/force-review', portalAuth, async (req, res) => {
+  const taskId = parseInt(req.params.id, 10);
+  try {
+    const task = await queries.getTask(taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+    if (!task.pr_number) {
+      return res.status(400).json({ error: 'Task has no associated PR to review' });
+    }
+
+    await queries.updateTaskStatus(taskId, task.status, {
+      last_reviewed_sha: null,
+      last_review_verdict: null
+    });
+
+    const freshTask = await queries.getTask(taskId);
+    const result = await prReviewer.reviewAndMerge(freshTask);
+    const updated = await queries.getTask(taskId);
+
+    res.json({ result, task: updated });
+  } catch (error) {
+    console.error(`Error forcing re-review for task #${taskId}:`, error);
     res.status(500).json({ error: error.message });
   }
 });

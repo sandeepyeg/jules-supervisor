@@ -6,6 +6,7 @@ import {
   GOOGLE_FALLBACK_MODELS
 } from '../core/config.js';
 import { fetchWithRetry as fetch } from './httpRetry.js';
+import { recordAiCall } from '../core/metrics.js';
 
 /**
  * A generic function to call an AI provider/model.
@@ -13,6 +14,17 @@ import { fetchWithRetry as fetch } from './httpRetry.js';
  * Never logs API keys or secrets.
  */
 export async function askModel(provider, model, prompt, options = {}) {
+  try {
+    const result = await askModelUncounted(provider, model, prompt, options);
+    recordAiCall(true);
+    return result;
+  } catch (error) {
+    recordAiCall(false);
+    throw error;
+  }
+}
+
+async function askModelUncounted(provider, model, prompt, options = {}) {
   const temperature = options.temperature !== undefined ? options.temperature : 0.2;
   const returnJson = !!options.returnJson;
 

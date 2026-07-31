@@ -1146,15 +1146,24 @@
         <div class="card-title">
           <h2>Console Status</h2>
         </div>
-        <div style="display: flex; gap: 0.75rem;">
-          <div style="flex: 1; background: rgba(10, 15, 26, 0.3); padding: 0.85rem; border-radius: 8px; text-align: center; border: 1px solid var(--glass-border);">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.75rem;">
+          <div style="background: rgba(10, 15, 26, 0.3); padding: 0.85rem; border-radius: 8px; text-align: center; border: 1px solid var(--glass-border);">
             <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Awaiting Telegram Replies</div>
             <div id="escalation-count-box" style="font-size: 1.6rem; font-weight: 700; color: var(--warning); margin: 0.1rem 0;">0</div>
             <div id="escalation-reminder-text" style="font-size: 0.65rem; color: var(--text-muted); display: none;">Awaiting reply</div>
           </div>
-          <div style="flex: 1; background: rgba(10, 15, 26, 0.3); padding: 0.85rem; border-radius: 8px; text-align: center; border: 1px solid var(--glass-border);">
+          <div style="background: rgba(10, 15, 26, 0.3); padding: 0.85rem; border-radius: 8px; text-align: center; border: 1px solid var(--glass-border);">
             <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Console Connection</div>
             <div id="polling-health-box" style="font-size: 0.85rem; font-weight: 600; color: var(--neutral); margin-top: 0.65rem;">🚫 Not Running</div>
+          </div>
+          <div style="background: rgba(10, 15, 26, 0.3); padding: 0.85rem; border-radius: 8px; text-align: center; border: 1px solid var(--glass-border);" title="AI review/answer calls made since the server last started, and how many hit a retry">
+            <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">AI Calls (this run)</div>
+            <div id="metrics-ai-calls-box" style="font-size: 1.6rem; font-weight: 700; color: var(--neutral); margin: 0.1rem 0;">–</div>
+            <div id="metrics-ai-detail-text" style="font-size: 0.65rem; color: var(--text-muted);"></div>
+          </div>
+          <div style="background: rgba(10, 15, 26, 0.3); padding: 0.85rem; border-radius: 8px; text-align: center; border: 1px solid var(--glass-border);" title="Tasks where the auto-revision limit was reached and Jules is no longer being auto-messaged">
+            <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Needs Manual Review</div>
+            <div id="metrics-escalated-box" style="font-size: 1.6rem; font-weight: 700; color: var(--neutral); margin: 0.1rem 0;">–</div>
           </div>
         </div>
       </div>
@@ -1206,6 +1215,7 @@
           🆔 Session: <code id="tdm-session" style="font-size: 0.75rem;"></code>
         </div>
         <a id="tdm-pr-link" href="#" target="_blank" style="font-size: 0.78rem; background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.3); border-radius: 6px; padding: 0.25rem 0.6rem; color: #818cf8; text-decoration: none; display: none;">🔗 View PR</a>
+        <div id="tdm-revision-chip" style="font-size: 0.78rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 0.25rem 0.6rem; display: none;"></div>
       </div>
 
       <!-- Q&A Thread -->
@@ -1224,6 +1234,7 @@
         <button id="tdm-retry-btn" onclick="retryTask(window._tdmTaskId); document.getElementById('task-detail-modal').style.display='none';" style="display:none; padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; border-radius: 7px; border: 1px solid rgba(99,102,241,0.35); background: rgba(99,102,241,0.1); color: #818cf8; cursor: pointer;">🔄 Retry</button>
         <button id="tdm-skip-btn" onclick="skipTask(window._tdmTaskId); document.getElementById('task-detail-modal').style.display='none';" style="display:none; padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; border-radius: 7px; border: 1px solid rgba(239,68,68,0.3); background: rgba(239,68,68,0.06); color: #f87171; cursor: pointer;">⏭ Skip</button>
         <button id="tdm-merge-btn" onclick="markTaskMerged(window._tdmTaskId); document.getElementById('task-detail-modal').style.display='none';" style="display:none; padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; border-radius: 7px; border: 1px solid rgba(16,185,129,0.35); background: rgba(16,185,129,0.08); color: #34d399; cursor: pointer;">✅ Mark Merged</button>
+        <button id="tdm-force-review-btn" onclick="forceReviewTask(window._tdmTaskId);" title="Clear the cached AI verdict and re-review this PR right now" style="display:none; padding: 0.35rem 0.75rem; font-size: 0.78rem; font-weight: 600; border-radius: 7px; border: 1px solid rgba(99,102,241,0.35); background: rgba(99,102,241,0.1); color: #a5b4fc; cursor: pointer;">🔍 Force Re-Review</button>
       </div>
     </div>
   </div>
@@ -1831,8 +1842,35 @@
       document.getElementById('polling-health-box').style.color = 'var(--success)';
     }
 
+    async function loadMetrics() {
+      try {
+        const response = await fetch('/api/status/metrics', { headers: getHeaders() });
+        if (!response.ok) return;
+        const data = await response.json();
+
+        const callsBox = document.getElementById('metrics-ai-calls-box');
+        const detailText = document.getElementById('metrics-ai-detail-text');
+        if (callsBox) callsBox.textContent = data.ai.callsTotal;
+        if (detailText) {
+          detailText.textContent = data.ai.failures > 0
+            ? `${data.ai.failures} failed · ${data.httpRetriesTotal} retries`
+            : `${data.httpRetriesTotal} retries`;
+        }
+
+        const escalatedBox = document.getElementById('metrics-escalated-box');
+        if (escalatedBox) {
+          escalatedBox.textContent = data.escalatedTasksCount;
+          escalatedBox.style.color = data.escalatedTasksCount > 0 ? 'var(--danger)' : 'var(--success)';
+        }
+      } catch (err) {
+        console.error('Failed to load metrics:', err);
+      }
+    }
+
     async function pollStatus() {
       if (!activePhaseId) return;
+
+      loadMetrics();
 
       try {
         const response = await fetch(`/api/status/${activePhaseId}`, {
@@ -1941,6 +1979,19 @@
             statusDetailText = `<div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem; font-family: monospace;">Session: ${task.jules_session_id || 'starting...'}</div>`;
           }
 
+          // Auto-review revision round and "needs manual attention" state — distinct
+          // from the waiting_answer/Telegram escalation above, which is a separate concept
+          // (a Jules question), not the PR-review auto-revision loop.
+          let revisionBadge = '';
+          const maxRevisions = (window._ghConfig && window._ghConfig.maxAutoRevisionAttempts) || 2;
+          if (task.pr_revision_count > 0) {
+            const revisionColor = task.escalated ? 'var(--danger)' : 'var(--text-muted)';
+            revisionBadge = `<span style="font-size: 0.7rem; color: ${revisionColor}; font-weight: 500; margin-left: 0.35rem;" title="Automatic revision requests sent to Jules for this PR">🔁 Revision ${task.pr_revision_count}/${maxRevisions}</span>`;
+          }
+          if (task.escalated) {
+            statusDetailText += `<div style="font-size: 0.7rem; color: var(--danger); margin-top: 0.15rem; font-weight: 600;">🛑 Needs manual review — auto-review limit reached, Jules will not be re-messaged automatically</div>`;
+          }
+
           let depTags = '';
           if (task.depends_on) {
             try {
@@ -1991,6 +2042,7 @@
                     ${pulseDot}
                     <span>${task.title}</span>
                     ${retryContent}
+                    ${revisionBadge}
                   </h4>
                   <p style="margin-top: 0.1rem; font-size: 0.75rem; color: var(--text-muted);">ID: ${task.id} ${statusDetailText} ${(task.qa_log||[]).length > 0 ? `· 💬 ${task.qa_log.length} Q&A` : ''}</p>
                 </div>
@@ -2102,6 +2154,47 @@
       } catch (err) {
         console.error(err);
         alert('Network error retrying task: ' + err.message);
+      }
+    }
+
+    async function forceReviewTask(taskId) {
+      if (!confirm('Re-run the AI review for this PR right now? This ignores the cached verdict and calls the AI again immediately.')) {
+        return;
+      }
+      const btn = document.getElementById('tdm-force-review-btn');
+      const originalText = btn ? btn.textContent : '';
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = '⏳ Reviewing...';
+      }
+      try {
+        const response = await fetch(`/api/tasks/${taskId}/force-review`, {
+          method: 'POST',
+          headers: getHeaders()
+        });
+        const body = await response.json();
+        if (!response.ok) {
+          alert('Failed to force a re-review: ' + (body.error || response.statusText));
+          return;
+        }
+        const outcome = body.result || {};
+        showToast(outcome.merged ? 'Re-reviewed and merged.' : (outcome.escalated ? 'Re-reviewed — still needs manual attention.' : 'Re-review complete.'));
+
+        const healthBoxText = document.getElementById('polling-health-box').innerText;
+        if (healthBoxText === 'COMPLETED' || healthBoxText === 'OFFLINE') {
+          loadActivePhase();
+        } else {
+          await pollStatus();
+        }
+        document.getElementById('task-detail-modal').style.display = 'none';
+      } catch (err) {
+        console.error(err);
+        alert('Network error forcing re-review: ' + err.message);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = originalText;
+        }
       }
     }
 
@@ -2267,10 +2360,33 @@
       const showRetry = ['failed', 'waiting_answer'].includes(task.status);
       const showSkip  = ['running', 'waiting_answer', 'failed'].includes(task.status);
       const showMerge = task.status === 'pr_open';
+      const showForceReview = task.status === 'pr_open' && !!task.pr_number;
       document.getElementById('tdm-retry-btn').style.display = showRetry ? 'inline-block' : 'none';
       document.getElementById('tdm-skip-btn').style.display  = showSkip  ? 'inline-block' : 'none';
       document.getElementById('tdm-merge-btn').style.display = showMerge ? 'inline-block' : 'none';
-      document.getElementById('tdm-actions').style.display = (showRetry || showSkip || showMerge) ? 'flex' : 'none';
+      document.getElementById('tdm-force-review-btn').style.display = showForceReview ? 'inline-block' : 'none';
+      document.getElementById('tdm-actions').style.display = (showRetry || showSkip || showMerge || showForceReview) ? 'flex' : 'none';
+
+      // Auto-review revision round / "needs manual review" chip — a separate concept
+      // from the Telegram Q&A escalation shown elsewhere; this is about the PR review loop.
+      const revisionChip = document.getElementById('tdm-revision-chip');
+      if (task.pr_revision_count > 0) {
+        const maxRevisions = (window._ghConfig && window._ghConfig.maxAutoRevisionAttempts) || 2;
+        revisionChip.style.display = 'inline-block';
+        if (task.escalated) {
+          revisionChip.textContent = `🛑 Needs manual review (${task.pr_revision_count}/${maxRevisions} auto-revisions used)`;
+          revisionChip.style.color = '#f87171';
+          revisionChip.style.borderColor = 'rgba(239,68,68,0.35)';
+          revisionChip.style.background = 'rgba(239,68,68,0.08)';
+        } else {
+          revisionChip.textContent = `🔁 Revision ${task.pr_revision_count}/${maxRevisions}`;
+          revisionChip.style.color = '';
+          revisionChip.style.borderColor = '';
+          revisionChip.style.background = '';
+        }
+      } else {
+        revisionChip.style.display = 'none';
+      }
 
       document.getElementById('task-detail-modal').style.display = 'flex';
     }

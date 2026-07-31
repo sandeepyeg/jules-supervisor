@@ -57,3 +57,4 @@ ALTER TABLE tasks ADD COLUMN last_reviewed_sha VARCHAR(64) COMMENT 'PR head SHA 
 ALTER TABLE tasks ADD COLUMN last_review_verdict TEXT COMMENT 'Cached JSON aggregate of the AI diff review for last_reviewed_sha';
 ALTER TABLE tasks ADD COLUMN pr_revision_count INT DEFAULT 0 COMMENT 'Auto revision requests sent to Jules for the current PR';
 ALTER TABLE tasks ADD COLUMN nudge_sent BOOLEAN DEFAULT FALSE COMMENT 'Whether the 20-45min in-progress nudge has already been sent';
+ALTER TABLE tasks ADD COLUMN escalated BOOLEAN DEFAULT FALSE COMMENT 'True once the auto-revision cap is reached and a human needs to take over';

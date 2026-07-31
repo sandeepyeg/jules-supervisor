@@ -6,6 +6,8 @@ import * as taskManager from '../core/taskManager.js';
 import * as poller from '../core/poller.js';
 import { portalAuth } from './auth.js';
 import { MAX_AUTO_REVISION_ATTEMPTS } from '../core/config.js';
+import { createPhaseFromPayload } from '../core/phaseImport.js';
+import { startPhase } from '../core/phaseLifecycle.js';
 
 const router = express.Router();
 
@@ -56,79 +58,12 @@ router.get('/github/branches', portalAuth, async (req, res) => {
  * Creates a new phase with a description and its associated tasks, mapping dependencies.
  */
 router.post('/', portalAuth, async (req, res) => {
-  const { title, description, mainBranch, tasks } = req.body;
-
-  if (!title) {
-    return res.status(400).json({ error: 'Title is required' });
-  }
-
-  const connection = await pool.getConnection();
   try {
-    await connection.beginTransaction();
-
-    // 1. Insert Phase
-    const [phaseRes] = await connection.query(
-      'INSERT INTO phases (title, description, main_branch, status) VALUES (?, ?, ?, ?)',
-      [title, description || '', mainBranch || 'main', 'draft']
-    );
-    const phaseId = phaseRes.insertId;
-
-    // 2. Insert Tasks and map dependencies
-    if (Array.isArray(tasks)) {
-      const insertedTasks = [];
-      const clientToDbMap = {};
-
-      for (let i = 0; i < tasks.length; i++) {
-        const t = tasks[i];
-        const [taskRes] = await connection.query(
-          `INSERT INTO tasks (phase_id, title, description, jules_notes, mode, status, sort_order) 
-           VALUES (?, ?, ?, ?, ?, 'queued', ?)`,
-          [
-            phaseId,
-            t.title,
-            t.description || '',
-            t.jules_notes || null,
-            t.mode || 'ai_assisted',
-            i
-          ]
-        );
-        
-        const dbId = taskRes.insertId;
-        insertedTasks.push({ dbId, clientTask: t });
-        
-        // Map index and client-side temp ID
-        clientToDbMap[i] = dbId;
-        if (t.id !== undefined) {
-          clientToDbMap[t.id] = dbId;
-        }
-      }
-
-      // Update depends_on using real DB IDs
-      for (const item of insertedTasks) {
-        const clientDeps = item.clientTask.depends_on || [];
-        const dbDeps = clientDeps.map(dep => {
-          if (clientToDbMap[dep] !== undefined) {
-            return clientToDbMap[dep];
-          }
-          const num = parseInt(dep, 10);
-          return isNaN(num) ? dep : num;
-        });
-
-        await connection.query(
-          'UPDATE tasks SET depends_on = ? WHERE id = ?',
-          [JSON.stringify(dbDeps), item.dbId]
-        );
-      }
-    }
-
-    await connection.commit();
+    const { phaseId } = await createPhaseFromPayload(req.body);
     res.status(201).json({ phaseId });
   } catch (error) {
-    await connection.rollback();
     console.error('Error creating phase:', error);
-    res.status(500).json({ error: error.message });
-  } finally {
-    connection.release();
+    res.status(error.statusCode || 500).json({ error: error.message });
   }
 });
 
@@ -138,48 +73,13 @@ router.post('/', portalAuth, async (req, res) => {
  */
 router.post('/:id/start', portalAuth, async (req, res) => {
   const phaseId = parseInt(req.params.id, 10);
-  
+
   try {
-    const phase = await queries.getPhase(phaseId);
-    if (!phase) {
-      return res.status(404).json({ error: 'Phase not found' });
-    }
-
-    if (phase.status !== 'draft') {
-      return res.status(400).json({ error: 'Phase is already started or completed' });
-    }
-
-    // Generate a unique, meaningful branch name from the phase title + short timestamp
-    const titleSlug = (phase.title || '')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')   // non-alphanumeric → dash
-      .replace(/^-+|-+$/g, '')        // trim leading/trailing dashes
-      .substring(0, 40)               // max 40 chars
-      || `phase-${phaseId}`;
-    const shortTs = Date.now().toString(36).slice(-5); // e.g. "a3f2k"
-    const branchName = `feature/${titleSlug}-${shortTs}`;
-    console.log(`Creating branch ${branchName} from ${phase.main_branch}...`);
-    
-    // Create github branch
-    await github.createBranch(branchName, phase.main_branch);
-
-    // Update phase status to active
-    await queries.updatePhaseStatus(phaseId, 'active', {
-      phase_branch: branchName,
-      started_at: new Date()
-    });
-
-    // Start ready tasks immediately
-    console.log('Launching initial ready tasks...');
-    await taskManager.startReadyTasks(phaseId, branchName);
-
-    // Start background poller loop
-    poller.startPoller(phaseId);
-
-    res.json({ started: true, branch: branchName });
+    const result = await startPhase(phaseId);
+    res.json(result);
   } catch (error) {
     console.error('Error starting phase:', error);
-    res.status(500).json({ error: error.message });
+    res.status(error.statusCode || 500).json({ error: error.message });
   }
 });
 

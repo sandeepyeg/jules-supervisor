@@ -1056,7 +1056,10 @@
           <div class="editor-section">
             <h3 style="margin-bottom: 0.75rem; font-size: 0.95rem; display: flex; justify-content: space-between; align-items: center;">
               <span>Phase Tasks</span>
-              <button type="button" class="btn btn-secondary" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;" onclick="addTaskItem()">+ Add Task</button>
+              <span style="display: flex; gap: 0.4rem;">
+                <button type="button" class="btn btn-secondary" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;" onclick="openJsonImportModal()" title="Paste a JSON object to add the phase title/description/tasks all at once">📋 Import JSON</button>
+                <button type="button" class="btn btn-secondary" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;" onclick="addTaskItem()">+ Add Task</button>
+              </span>
             </h3>
             
             <div class="split-editor-layout">
@@ -1278,6 +1281,37 @@
     </div>
   </div>
 
+  <!-- Bulk JSON Import Modal -->
+  <div id="json-import-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-card glass-card">
+      <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h3 style="margin: 0; font-size: 1.1rem; color: var(--text-main);">Import Phase from JSON</h3>
+        <button type="button" class="btn btn-secondary" onclick="closeJsonImportModal()" style="padding: 0.15rem 0.45rem; font-size: 0.75rem; border-color: rgba(255,255,255,0.1); margin: 0;">✕</button>
+      </div>
+      <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0 0 0.75rem;">
+        Paste one JSON object below. <code>title</code> and <code>description</code> fill the fields above (if provided);
+        <code>tasks[].depends_on</code> uses 0-based indices into the <code>tasks</code> array. This form still saves a
+        draft for you to review — but the same format sent to the Telegram bot as <code>/import &lt;json&gt;</code> starts
+        running immediately, no review step.
+      </p>
+      <div class="form-group">
+        <textarea id="json-import-textarea" rows="12" style="font-family: monospace; font-size: 0.78rem;" placeholder='{
+  "title": "Phase 2 - Billing",
+  "description": "Add Stripe subscriptions.",
+  "mainBranch": "main",
+  "tasks": [
+    { "title": "Add Stripe SDK wrapper", "description": "..." },
+    { "title": "Add webhook handler", "description": "...", "depends_on": [0] }
+  ]
+}'></textarea>
+      </div>
+      <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+        <button type="button" class="btn btn-secondary" style="flex: 1; padding: 0.65rem;" onclick="copySampleJson()" title="Copy the sample format below — paste it into an LLM to generate real tasks in this shape, then paste the result back here">📄 Copy Sample</button>
+        <button type="button" class="btn" style="flex: 1; padding: 0.65rem;" onclick="importJsonIntoForm()">Import</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     let tasksList = [];
     let selectedTaskIndex = 0;
@@ -1421,6 +1455,102 @@
           }
         }
       });
+    }
+
+    async function copySampleJson() {
+      const sample = document.getElementById('json-import-textarea').getAttribute('placeholder');
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(sample);
+        } else {
+          const scratch = document.createElement('textarea');
+          scratch.value = sample;
+          scratch.style.position = 'fixed';
+          scratch.style.opacity = '0';
+          document.body.appendChild(scratch);
+          scratch.select();
+          document.execCommand('copy');
+          document.body.removeChild(scratch);
+        }
+        showToast('Sample JSON copied — paste it wherever you generate tasks, then paste the result back here.');
+      } catch (err) {
+        console.error('Copy failed:', err);
+        alert('Could not copy automatically. Select the placeholder text in the box below and copy it manually.');
+      }
+    }
+
+    function openJsonImportModal() {
+      document.getElementById('json-import-modal').style.display = 'flex';
+    }
+
+    function closeJsonImportModal() {
+      document.getElementById('json-import-modal').style.display = 'none';
+    }
+
+    function importJsonIntoForm() {
+      const raw = document.getElementById('json-import-textarea').value.trim();
+      if (!raw) {
+        alert('Paste a JSON object first.');
+        return;
+      }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch (err) {
+        alert('That is not valid JSON: ' + err.message);
+        return;
+      }
+
+      const incomingTasks = Array.isArray(parsed) ? parsed : parsed.tasks;
+      if (!Array.isArray(incomingTasks) || incomingTasks.length === 0) {
+        alert('JSON must include a non-empty "tasks" array (or be a tasks array itself).');
+        return;
+      }
+      for (let i = 0; i < incomingTasks.length; i++) {
+        if (!incomingTasks[i] || !incomingTasks[i].title) {
+          alert(`Task at index ${i} is missing a "title".`);
+          return;
+        }
+      }
+
+      const hasExistingContent = tasksList.some(t => t.title && t.title.trim());
+      if (hasExistingContent && !confirm(`Replace the ${tasksList.length} task(s) already in this form with ${incomingTasks.length} task(s) from this JSON?`)) {
+        return;
+      }
+
+      if (!Array.isArray(parsed)) {
+        if (parsed.title) document.getElementById('phase-title').value = parsed.title;
+        if (parsed.description) document.getElementById('phase-description').value = parsed.description;
+        if (parsed.mainBranch) document.getElementById('main-branch').value = parsed.mainBranch;
+      }
+
+      // Build the new task list first (with generated ids), then resolve each task's
+      // depends_on (0-based indices into the JSON array) into those generated ids.
+      const newTasks = incomingTasks.map((t, i) => ({
+        id: 't_' + Date.now() + '_' + i,
+        title: t.title,
+        description: t.description || '',
+        mode: t.mode || 'ai_assisted',
+        jules_notes: t.jules_notes || '',
+        depends_on: [],
+        dependency_type: 'custom'
+      }));
+
+      incomingTasks.forEach((t, i) => {
+        const deps = Array.isArray(t.depends_on) ? t.depends_on : [];
+        newTasks[i].depends_on = deps
+          .map(dep => (typeof dep === 'number' && newTasks[dep]) ? newTasks[dep].id : null)
+          .filter(Boolean);
+        newTasks[i].dependency_type = newTasks[i].depends_on.length === 0 ? (i === 0 ? 'sequential' : 'independent') : 'custom';
+      });
+
+      tasksList = newTasks;
+      selectedTaskIndex = tasksList.length - 1;
+      renderTasks();
+      saveFormDraft();
+      closeJsonImportModal();
+      showToast(`Imported ${newTasks.length} task(s) from JSON.`);
     }
 
     function addTaskItem() {

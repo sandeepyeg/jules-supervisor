@@ -2,6 +2,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import EventEmitter from 'events';
 import { getPortalSecret } from '../api/auth.js';
 import { pool } from '../db/connection.js';
+import { createPhaseFromPayload } from '../core/phaseImport.js';
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -217,6 +218,84 @@ if (!token || token.startsWith('your_')) {
       } catch (err) {
         console.error('Error skipping task:', err);
         await bot.sendMessage(chatId, `Error skipping task: ${err.message}`, { reply_markup: TELEGRAM_MAIN_KEYBOARD });
+      }
+      return;
+    }
+
+    // 5. /sample — sends the JSON format /import accepts, as a code block so it's easy
+    // to copy, paste into an LLM to generate real tasks in this shape, then send back
+    // via /import.
+    if (/^\/sample\b/i.test(text)) {
+      const sampleJson = JSON.stringify({
+        title: 'Payment Integration',
+        description: 'Add Stripe subscription billing.',
+        mainBranch: 'main',
+        tasks: [
+          { title: 'Add Stripe SDK wrapper', description: 'Wrap the Stripe SDK for our billing use case.' },
+          { title: 'Add webhook handler', description: 'Handle subscription lifecycle events.', depends_on: [0] },
+          { title: 'Write API docs', description: 'Document the new endpoints.' }
+        ]
+      }, null, 2);
+
+      await bot.sendMessage(
+        chatId,
+        `Here's the format /import accepts — copy this, edit it (or hand it to an LLM to generate real tasks in this shape), then send it back prefixed with /import:\n\n\`\`\`\n${sampleJson}\n\`\`\`\n\n"depends_on" is a list of 0-based indices into "tasks" — [0] means "depends on the first task above."`,
+        { parse_mode: 'Markdown', reply_markup: TELEGRAM_MAIN_KEYBOARD }
+      );
+      return;
+    }
+
+    // 6. /import — bulk phase/task import. Send "/import" followed by a JSON object
+    // (same message) to create a whole phase and its tasks in one shot, using the same
+    // schema and same validated path as the dashboard's "Create Running Phase" form —
+    // then immediately starts it (creates the branch, launches Jules on the first ready
+    // tasks). Falls back to leaving it as a draft only if starting itself fails.
+    if (/^\/import\b/i.test(text)) {
+      const jsonText = text.replace(/^\/import\b/i, '').trim();
+
+      if (!jsonText) {
+        await bot.sendMessage(
+          chatId,
+          'Send the phase JSON right after /import, e.g.:\n/import {"title": "Payment Integration", "tasks": [{"title": "Add Stripe SDK wrapper"}, {"title": "Add webhook handler", "depends_on": [0]}]}',
+          { reply_markup: TELEGRAM_MAIN_KEYBOARD }
+        );
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(jsonText);
+        if (Array.isArray(parsed)) {
+          await bot.sendMessage(
+            chatId,
+            '⚠️ /import needs a full phase object, not just a task list:\n/import { "title": "...", "description": "...", "tasks": [ { "title": "..." } ] }',
+            { reply_markup: TELEGRAM_MAIN_KEYBOARD }
+          );
+          return;
+        }
+        const { phaseId, taskCount } = await createPhaseFromPayload(parsed);
+
+        // /import runs the phase immediately (unlike the dashboard's Import JSON, which
+        // stays a draft) — that's the point of importing from your phone: it should just go.
+        // Dynamic import avoids a circular dependency: phaseLifecycle -> poller -> telegram.
+        try {
+          const { startPhase } = await import('../core/phaseLifecycle.js');
+          const { branch } = await startPhase(phaseId);
+          await bot.sendMessage(
+            chatId,
+            `🚀 Created phase #${phaseId} ("${parsed.title}") with ${taskCount} task(s) and started it on branch \`${branch}\`.\n\nJules is working now — check /status or the dashboard.`,
+            { parse_mode: 'Markdown', reply_markup: TELEGRAM_MAIN_KEYBOARD }
+          );
+        } catch (startErr) {
+          console.error(`Error auto-starting phase #${phaseId} from Telegram import:`, startErr);
+          await bot.sendMessage(
+            chatId,
+            `✅ Created phase #${phaseId} ("${parsed.title}") with ${taskCount} task(s), but couldn't start it automatically: ${startErr.message}\n\nIt's saved as a draft — open the dashboard to start it manually.`,
+            { reply_markup: TELEGRAM_MAIN_KEYBOARD }
+          );
+        }
+      } catch (err) {
+        console.error('Error importing phase from Telegram JSON:', err);
+        await bot.sendMessage(chatId, `❌ Couldn't import that: ${err.message}`, { reply_markup: TELEGRAM_MAIN_KEYBOARD });
       }
       return;
     }

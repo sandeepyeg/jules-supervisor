@@ -11,6 +11,29 @@ import * as prReviewer from './prReviewer.js';
 export async function handleSession(task) {
   console.log(`Checking session ${task.jules_session_id} for task #${task.id} (Status: ${task.status})`);
   
+  // 0. Self-Healing PR Reconciliation: Check if PR exists and is merged on GitHub
+  if (task.status === 'running' || task.status === 'pr_open') {
+    try {
+      if (task.pr_number) {
+        const pr = await github.getPR(task.pr_number);
+        if (pr && (pr.merged || pr.state === 'closed')) {
+          console.log(`Self-Healing: PR #${task.pr_number} for task #${task.id} is MERGED on GitHub. Syncing DB status.`);
+          await queries.updateTaskStatus(task.id, 'merged', {
+            pr_url: pr.html_url || task.pr_url,
+            pr_number: task.pr_number
+          });
+          const phase = await queries.getPhase(task.phase_id);
+          const ready = await queries.getQueuedReadyTasks(task.phase_id);
+          const nextTitle = ready[0]?.title;
+          await telegram.sendTaskMergedNotification(task.title, task.id, pr.html_url || task.pr_url, phase ? phase.phase_branch : 'phase branch', nextTitle);
+          return;
+        }
+      }
+    } catch (reconcileErr) {
+      console.warn(`PR self-healing check warning for task #${task.id}:`, reconcileErr.message);
+    }
+  }
+
   // 1. Get current session details from Jules API
   const session = await jules.getSession(task.jules_session_id);
   const state = session.state;

@@ -18,6 +18,61 @@ export const TELEGRAM_MAIN_KEYBOARD = {
   persistent: true
 };
 
+/**
+ * Builds live pipeline status text and inline keyboard buttons.
+ */
+export async function getStatusSummaryMessage() {
+  const [phases] = await pool.query("SELECT * FROM phases WHERE status = 'active' ORDER BY id DESC LIMIT 1");
+  const phase = phases[0];
+
+  if (!phase) {
+    return {
+      text: "ℹ️ No active phase currently running.",
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: "🌐 Open Dashboard", url: "https://jules.sandeepbuilds.com" }]
+        ]
+      }
+    };
+  }
+
+  const [tasks] = await pool.query("SELECT * FROM tasks WHERE phase_id = ? ORDER BY sort_order ASC", [phase.id]);
+  const total = tasks.length;
+  const merged = tasks.filter(t => t.status === 'merged' || t.status === 'skipped').length;
+  const activeTask = tasks.find(t => t.status === 'running' || t.status === 'pr_open' || t.status === 'waiting_answer');
+
+  const pct = Math.round((merged / total) * 100) || 0;
+  const filled = Math.round((pct / 100) * 10);
+  const progressBar = "█".repeat(filled) + "░".repeat(10 - filled);
+
+  let statusText = `📊 Phase Status: ${phase.title}\n`;
+  statusText += `Target Branch: ${phase.phase_branch}\n`;
+  statusText += `Progress: [${progressBar}] ${merged}/${total} Tasks (${pct}%)\n\n`;
+
+  if (activeTask) {
+    statusText += `🔄 Active Task #${activeTask.id}:\n"${activeTask.title}"\nStatus: ${activeTask.status}\n`;
+    if (activeTask.pr_url) {
+      statusText += `PR: ${activeTask.pr_url}\n`;
+    }
+  } else {
+    statusText += `✅ All active tasks up to date.`;
+  }
+
+  const buttons = [];
+  if (activeTask && activeTask.pr_url) {
+    buttons.push([{ text: "🔗 Open Active PR on GitHub", url: activeTask.pr_url }]);
+  }
+  buttons.push([
+    { text: "📊 Refresh Status", callback_data: "cmd_status" },
+    { text: "🌐 Open Dashboard", url: "https://jules.sandeepbuilds.com" }
+  ]);
+
+  return {
+    text: statusText,
+    reply_markup: { inline_keyboard: buttons }
+  };
+}
+
 let bot;
 
 if (!token || token.startsWith('your_')) {
@@ -82,7 +137,6 @@ if (!token || token.startsWith('your_')) {
       try {
         const summary = await getStatusSummaryMessage();
         await bot.sendMessage(chatId, summary.text, {
-          parse_mode: 'Markdown',
           reply_markup: TELEGRAM_MAIN_KEYBOARD
         });
       } catch (err) {
@@ -103,8 +157,7 @@ if (!token || token.startsWith('your_')) {
         }
         const poller = await import('../core/poller.js');
         poller.stopPoller(phase.id);
-        await bot.sendMessage(chatId, `⏸ Supervisor poller paused for Phase "*${phase.title}*".`, {
-          parse_mode: 'Markdown',
+        await bot.sendMessage(chatId, `⏸ Supervisor poller paused for Phase "${phase.title}".`, {
           reply_markup: TELEGRAM_MAIN_KEYBOARD
         });
       } catch (err) {
@@ -125,8 +178,7 @@ if (!token || token.startsWith('your_')) {
         }
         const poller = await import('../core/poller.js');
         poller.startPoller(phase.id);
-        await bot.sendMessage(chatId, `▶️ Supervisor poller resumed for Phase "*${phase.title}*".`, {
-          parse_mode: 'Markdown',
+        await bot.sendMessage(chatId, `▶️ Supervisor poller resumed for Phase "${phase.title}".`, {
           reply_markup: TELEGRAM_MAIN_KEYBOARD
         });
       } catch (err) {
@@ -159,8 +211,7 @@ if (!token || token.startsWith('your_')) {
         const taskManager = await import('../core/taskManager.js');
         const started = await taskManager.startReadyTasks(phase.id, phase.phase_branch);
         
-        await bot.sendMessage(chatId, `⏭ Task #${task.id} ("*${task.title}*") was skipped. ${started > 0 ? 'Next task started automatically!' : 'No more queued tasks ready.'}`, {
-          parse_mode: 'Markdown',
+        await bot.sendMessage(chatId, `⏭ Task #${task.id} ("${task.title}") was skipped. ${started > 0 ? 'Next task started automatically!' : 'No more queued tasks ready.'}`, {
           reply_markup: TELEGRAM_MAIN_KEYBOARD
         });
       } catch (err) {
@@ -190,7 +241,6 @@ if (!token || token.startsWith('your_')) {
         const summary = await getStatusSummaryMessage();
         try { await bot.answerCallbackQuery(query.id, { text: 'Status updated!' }); } catch (_) {}
         await bot.sendMessage(chatId, summary.text, {
-          parse_mode: 'Markdown',
           reply_markup: summary.reply_markup
         });
       } catch (err) {
@@ -202,60 +252,7 @@ if (!token || token.startsWith('your_')) {
 
 export { bot };
 
-/**
- * Builds live pipeline status text and inline keyboard buttons.
- */
-export async function getStatusSummaryMessage() {
-  const [phases] = await pool.query("SELECT * FROM phases WHERE status = 'active' ORDER BY id DESC LIMIT 1");
-  const phase = phases[0];
 
-  if (!phase) {
-    return {
-      text: "ℹ️ *No active phase currently running.*",
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "🌐 Open Dashboard", url: "https://jules.sandeepbuilds.com" }]
-        ]
-      }
-    };
-  }
-
-  const [tasks] = await pool.query("SELECT * FROM tasks WHERE phase_id = ? ORDER BY sort_order ASC", [phase.id]);
-  const total = tasks.length;
-  const merged = tasks.filter(t => t.status === 'merged' || t.status === 'skipped').length;
-  const activeTask = tasks.find(t => t.status === 'running' || t.status === 'pr_open' || t.status === 'waiting_answer');
-
-  const pct = Math.round((merged / total) * 100) || 0;
-  const filled = Math.round((pct / 100) * 10);
-  const progressBar = "█".repeat(filled) + "░".repeat(10 - filled);
-
-  let statusText = `📊 *Phase Status: ${phase.title}*\n`;
-  statusText += `Target Branch: \`${phase.phase_branch}\`\n`;
-  statusText += `Progress: [${progressBar}] ${merged}/${total} Tasks (${pct}%)\n\n`;
-
-  if (activeTask) {
-    statusText += `🔄 *Active Task #${activeTask.id}*:\n"${activeTask.title}"\nStatus: \`${activeTask.status}\`\n`;
-    if (activeTask.pr_url) {
-      statusText += `PR: ${activeTask.pr_url}\n`;
-    }
-  } else {
-    statusText += `✅ *All active tasks up to date.*`;
-  }
-
-  const buttons = [];
-  if (activeTask && activeTask.pr_url) {
-    buttons.push([{ text: "🔗 Open Active PR on GitHub", url: activeTask.pr_url }]);
-  }
-  buttons.push([
-    { text: "📊 Refresh Status", callback_data: "cmd_status" },
-    { text: "🌐 Open Dashboard", url: "https://jules.sandeepbuilds.com" }
-  ]);
-
-  return {
-    text: statusText,
-    reply_markup: { inline_keyboard: buttons }
-  };
-}
 
 /**
  * Sends an escalation message when AI confidence is low.

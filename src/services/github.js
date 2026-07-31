@@ -7,8 +7,11 @@ const getHeaders = (extraHeaders = {}) => {
   if (!token) {
     throw new Error('GITHUB_TOKEN is not defined in environment variables');
   }
+  const authHeader = token.startsWith('ghp_') || token.startsWith('github_pat_')
+    ? `token ${token}`
+    : `Bearer ${token}`;
   return {
-    'Authorization': `Bearer ${token}`,
+    'Authorization': authHeader,
     'Accept': 'application/vnd.github+json',
     'User-Agent': 'jules-supervisor',
     ...extraHeaders

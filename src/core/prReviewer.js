@@ -155,7 +155,7 @@ export async function reviewAndMerge(task) {
       await sendReviewNotificationOnce(task, pr, 'diff-too-large', async () => {
         await telegram.sendPRBlockedNotification({
           taskTitle: task.title,
-          prUrl: task.pr_url || `https://github.com/sandeepyeg/project-jupitor/pull/${task.pr_number}`,
+          prUrl: task.pr_url || github.getPRWebUrl(task.pr_number),
           riskLevel: 'high',
           blockingReason: `PR diff size (${rawDiff.length} chars) exceeds the maximum allowed limit of ${MAX_PR_DIFF_CHARS} chars.`,
           julesFix: 'Manual human review and merge required'

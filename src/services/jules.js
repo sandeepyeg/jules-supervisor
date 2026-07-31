@@ -1,4 +1,10 @@
 import nodeFetch from 'node-fetch';
+import { fetchWithRetry } from './httpRetry.js';
+
+// Mutating calls (create session, approve plan, send message) intentionally use
+// this raw, non-retrying fetch: retrying them on a lost response risks duplicating
+// the action (e.g. two sessions created) if the original request already succeeded
+// server-side. Read-only calls below use fetchWithRetry instead.
 const fetch = (...args) => (globalThis.__mockFetch || nodeFetch)(...args);
 
 const getHeaders = () => {
@@ -61,8 +67,8 @@ export async function createSession(prompt, sprintBranch, julesNotes) {
  */
 export async function getSession(sessionId) {
   const url = `${getBaseUrl()}/sessions/${sessionId}`;
-  
-  const response = await fetch(url, {
+
+  const response = await fetchWithRetry(url, {
     method: 'GET',
     headers: getHeaders()
   });
@@ -80,8 +86,8 @@ export async function getSession(sessionId) {
  */
 export async function listActivities(sessionId) {
   const url = `${getBaseUrl()}/sessions/${sessionId}/activities?pageSize=50`;
-  
-  const response = await fetch(url, {
+
+  const response = await fetchWithRetry(url, {
     method: 'GET',
     headers: getHeaders()
   });

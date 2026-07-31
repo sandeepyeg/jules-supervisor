@@ -1,5 +1,11 @@
 import nodeFetch from 'node-fetch';
 import { NEVER_MERGE_TO_MAIN } from '../core/config.js';
+import { fetchWithRetry } from './httpRetry.js';
+
+// Mutating calls (branch/PR creation, approve, merge, update-branch) intentionally
+// use this raw, non-retrying fetch: retrying them on a lost response risks duplicating
+// the action (e.g. two branches, a double merge attempt) if the original request
+// already succeeded server-side. Read-only calls below use fetchWithRetry instead.
 const fetch = (...args) => (globalThis.__mockFetch || nodeFetch)(...args);
 
 const getHeaders = (extraHeaders = {}) => {
@@ -35,7 +41,7 @@ export async function createBranch(newBranchName, fromBranch) {
   
   // 1. Get reference branch SHA
   const refUrl = `${repoUrl}/git/ref/heads/${fromBranch}`;
-  const getRefResponse = await fetch(refUrl, {
+  const getRefResponse = await fetchWithRetry(refUrl, {
     method: 'GET',
     headers: getHeaders()
   });
@@ -76,8 +82,8 @@ export async function createBranch(newBranchName, fromBranch) {
 export async function getPRDiff(prNumber) {
   const repoUrl = getRepoUrl();
   const url = `${repoUrl}/pulls/${prNumber}`;
-  
-  const response = await fetch(url, {
+
+  const response = await fetchWithRetry(url, {
     method: 'GET',
     headers: getHeaders({ 'Accept': 'application/vnd.github.diff' })
   });
@@ -175,12 +181,24 @@ export function getPRNumber(prUrl) {
 }
 
 /**
+ * Builds the web (non-API) PR URL for the currently configured GITHUB_OWNER/GITHUB_REPO.
+ */
+export function getPRWebUrl(prNumber) {
+  const owner = process.env.GITHUB_OWNER;
+  const repo = process.env.GITHUB_REPO;
+  if (!owner || !repo) {
+    throw new Error('GITHUB_OWNER and GITHUB_REPO must be defined in environment variables');
+  }
+  return `https://github.com/${owner}/${repo}/pull/${prNumber}`;
+}
+
+/**
  * Retrieves structured PR metadata.
  */
 export async function getPR(prNumber) {
   const repoUrl = getRepoUrl();
   const url = `${repoUrl}/pulls/${prNumber}`;
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     method: 'GET',
     headers: getHeaders()
   });
@@ -219,7 +237,7 @@ export async function getPR(prNumber) {
 export async function getPRsForBranch(baseBranch) {
   const repoUrl = getRepoUrl();
   const url = `${repoUrl}/pulls?state=open&base=${encodeURIComponent(baseBranch)}&per_page=100`;
-  const response = await fetch(url, {
+  const response = await fetchWithRetry(url, {
     method: 'GET',
     headers: getHeaders()
   });
@@ -238,16 +256,33 @@ export async function getPRsForBranch(baseBranch) {
  * is still IN_PROGRESS but the PR was already opened.
  */
 export async function findOpenPRForTask(sessionId, baseBranch) {
+  const sessionIdStr = sessionId === undefined || sessionId === null ? '' : String(sessionId);
+
+  // Require a reasonably long identifier before matching. A short/empty ID (e.g. from an
+  // undefined sessionId turning into the literal string "undefined") could coincidentally
+  // match an unrelated branch name and route review to the wrong PR.
+  if (sessionIdStr.length < 8) {
+    if (sessionIdStr) {
+      console.warn(`findOpenPRForTask: session identifier "${sessionIdStr}" is too short to match safely. Skipping.`);
+    }
+    return null;
+  }
+
   try {
     const prs = await getPRsForBranch(baseBranch);
-    // Jules names branches with the session ID embedded in the head ref
-    const match = prs.find(pr =>
-      pr.head?.ref?.includes(String(sessionId)) ||
-      pr.head?.ref?.includes(sessionId.toString().substring(0, 16))
+    // Jules names branches with the (possibly truncated) session ID embedded in the head ref.
+    const prefix = sessionIdStr.substring(0, 16);
+    const matches = prs.filter(pr =>
+      pr.head?.ref?.includes(sessionIdStr) || pr.head?.ref?.includes(prefix)
     );
-    return match || null;
+
+    if (matches.length > 1) {
+      console.warn(`findOpenPRForTask: ${matches.length} PRs matched session ${sessionIdStr} on branch ${baseBranch} (branches: ${matches.map(pr => pr.head?.ref).join(', ')}). Using the first match, PR #${matches[0].number}.`);
+    }
+
+    return matches[0] || null;
   } catch (err) {
-    console.warn(`findOpenPRForTask error for session ${sessionId}:`, err.message);
+    console.warn(`findOpenPRForTask error for session ${sessionIdStr}:`, err.message);
     return null;
   }
 }
@@ -261,7 +296,7 @@ export async function getPRFiles(prNumber) {
   let page = 1;
   while (true) {
     const url = `${repoUrl}/pulls/${prNumber}/files?per_page=100&page=${page}`;
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method: 'GET',
       headers: getHeaders()
     });
@@ -298,7 +333,7 @@ export async function getPRChecks(prNumber) {
     
     // 1. Combined status
     const statusUrl = `${repoUrl}/commits/${sha}/status`;
-    const statusResponse = await fetch(statusUrl, {
+    const statusResponse = await fetchWithRetry(statusUrl, {
       method: 'GET',
       headers: getHeaders()
     });
@@ -315,7 +350,7 @@ export async function getPRChecks(prNumber) {
 
     // 2. Check runs
     const checkRunsUrl = `${repoUrl}/commits/${sha}/check-runs`;
-    const checksResponse = await fetch(checkRunsUrl, {
+    const checksResponse = await fetchWithRetry(checkRunsUrl, {
       method: 'GET',
       headers: getHeaders()
     });
@@ -400,7 +435,7 @@ export async function listBranches() {
 
   while (true) {
     const url = `${repoUrl}/branches?per_page=100&page=${page}`;
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method: 'GET',
       headers: getHeaders()
     });

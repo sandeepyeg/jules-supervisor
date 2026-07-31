@@ -55,12 +55,6 @@ router.patch('/:id', portalAuth, async (req, res) => {
         const { startPoller } = await import('../core/poller.js');
         startPoller(phase.id);
       }
-    } else if (status === 'merged') {
-      const phase = await queries.getPhase(task.phase_id);
-      if (phase && phase.status === 'active') {
-        const { startReadyTasks } = await import('../core/taskManager.js');
-        await startReadyTasks(phase.id, phase.phase_branch);
-      }
     }
 
     res.json(updated);

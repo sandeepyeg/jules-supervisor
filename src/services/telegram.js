@@ -267,7 +267,7 @@ export async function sendEscalation(taskTitle, taskId, question) {
  */
 export async function sendReminder(taskTitle, question, originalMessageId) {
   const formatted = `Reminder: Jules is still waiting for your input on task "${taskTitle}".\n\nQuestion:\n${question}`;
-  return bot.sendMessage(chatId, formatted, { reply_to_message_id: originalMessageId });
+  return bot.sendMessage(chatId, formatted, { reply_parameters: { message_id: originalMessageId } });
 }
 
 /**

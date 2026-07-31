@@ -1,4 +1,3 @@
-import nodeFetch from 'node-fetch';
 import {
   PRIMARY_SUPERVISOR_PROVIDER,
   PRIMARY_SUPERVISOR_MODEL,
@@ -6,8 +5,7 @@ import {
   BACKUP_SUPERVISOR_MODEL,
   GOOGLE_FALLBACK_MODELS
 } from '../core/config.js';
-
-const fetch = (...args) => (globalThis.__mockFetch || nodeFetch)(...args);
+import { fetchWithRetry as fetch } from './httpRetry.js';
 
 /**
  * A generic function to call an AI provider/model.

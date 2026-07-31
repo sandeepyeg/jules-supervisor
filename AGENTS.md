@@ -53,7 +53,7 @@ This guide outlines the commands and guidelines for AI coding agents and develop
 
 ### 🤖 Model Recommendations & Routing
 - **Primary Supervisor**: Use `gemini-3.1-flash-lite` (Provider: `google`) for normal orchestration and answering.
-- **Backup Supervisor**: Use `deepseek/deepseek-chat` via OpenRouter (Provider: `openrouter`) when the primary model fails or returns low confidence.
+- **Backup Supervisor**: Use `qwen/qwen3.7-flash` via OpenRouter (Provider: `openrouter`) when the primary model fails or returns low confidence.
 - **Strong Reviewer**: Use `gemini-3.5-flash` (Provider: `google`) to review high-risk changes.
 - **Privacy Warning**: Never send real client immigration data, passport information, or documents to free/cheap models.
 

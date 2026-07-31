@@ -1,6 +1,7 @@
 import { getQueuedReadyTasks, updateTaskStatus } from '../db/queries.js';
 import { pool } from '../db/connection.js';
 import { createSession } from '../services/jules.js';
+import * as telegram from '../services/telegram.js';
 
 /**
  * Gets tasks that are queued and ready to start (i.e. all dependencies are merged/skipped).
@@ -35,6 +36,13 @@ Add or update tests when behavior changes.`;
       await updateTaskStatus(task.id, 'running', {
         jules_session_id: sessionId
       });
+      
+      // Send Telegram notification
+      try {
+        await telegram.sendTaskStartedNotification(task.title, task.id, phaseBranch);
+      } catch (tgErr) {
+        console.error('Failed to send Telegram task start notification:', tgErr);
+      }
       
       startedCount++;
     } catch (error) {

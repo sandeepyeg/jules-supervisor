@@ -27,8 +27,9 @@ app.use(securityBlocker);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Serve web portal
+// Serve web portal (with no-cache headers to ensure immediate UI updates)
 app.get('/', (req, res) => {
+  res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.sendFile(path.join(__dirname, 'src/portal/index.html'));
 });
 
@@ -69,8 +70,8 @@ if (USE_HTTPS) {
 
   if (!fs.existsSync(keyPath) || !fs.existsSync(certPath)) {
     try {
-      console.log('Generating self-signed SSL certificate for HTTPS server...');
-      execSync(`openssl req -x509 -newkey rsa:2048 -nodes -keyout "${keyPath}" -out "${certPath}" -days 365 -subj "/CN=localhost"`);
+      console.log('Generating self-signed SSL certificate with SAN for HTTPS server...');
+      execSync(`openssl req -x509 -newkey rsa:2048 -nodes -keyout "${keyPath}" -out "${certPath}" -days 365 -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"`);
     } catch (certErr) {
       console.error('Failed to generate self-signed SSL cert via openssl:', certErr.message);
     }

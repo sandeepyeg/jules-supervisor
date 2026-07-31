@@ -125,6 +125,30 @@ export async function sendPRReadyNotification({ taskTitle, prUrl }) {
 }
 
 /**
+ * Sends an alert when a task starts.
+ */
+export async function sendTaskStartedNotification(taskTitle, taskId, phaseBranch) {
+  const formatted = `🚀 Task #${taskId} Started\n\nTask: ${taskTitle}\nTarget Branch: ${phaseBranch}\n\nJules is actively generating code changes.`;
+  return bot.sendMessage(chatId, formatted);
+}
+
+/**
+ * Sends an alert when a PR is created by Jules.
+ */
+export async function sendPRCreatedNotification(taskTitle, taskId, prUrl) {
+  const formatted = `📝 PR Opened for Task #${taskId}\n\nTask: ${taskTitle}\nPR URL: ${prUrl}\n\nSupervisor is reviewing code changes...`;
+  return bot.sendMessage(chatId, formatted);
+}
+
+/**
+ * Sends an alert when a task PR is merged into phase branch.
+ */
+export async function sendTaskMergedNotification(taskTitle, taskId, prUrl, phaseBranch, nextTaskTitle) {
+  const formatted = `✅ Task #${taskId} Merged\n\nTask: ${taskTitle}\nPR URL: ${prUrl || 'N/A'}\nBranch: ${phaseBranch}\n\n${nextTaskTitle ? `Next task starting: "${nextTaskTitle}"` : 'All phase tasks completed!'}`;
+  return bot.sendMessage(chatId, formatted);
+}
+
+/**
  * Sends an alert when all phase tasks are complete.
  */
 export async function sendPhaseCompleteNotification(phaseBranch, phaseTitle) {

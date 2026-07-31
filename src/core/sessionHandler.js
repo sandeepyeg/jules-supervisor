@@ -51,21 +51,57 @@ export async function handleSession(task) {
     case 'COMPLETED': {
       console.log(`Jules session ${task.jules_session_id} completed successfully.`);
       
-      // Extract PR URL
+      // Extract PR URL from all possible Jules API payload structures
       let prUrl = session.output?.prUrl;
       if (!prUrl) {
-        // Fallback: check activities for a PR URL or creation
-        const activities = await jules.listActivities(task.jules_session_id);
-        const prActivity = activities.find(
-          act => act.originator === 'agent' && act.pullRequestCreated && act.pullRequestCreated.prUrl
-        );
-        if (prActivity) {
-          prUrl = prActivity.pullRequestCreated.prUrl;
+        try {
+          const activities = await jules.listActivities(task.jules_session_id);
+          for (const act of activities) {
+            if (act.publishPullRequest?.pullRequest?.url) {
+              prUrl = act.publishPullRequest.pullRequest.url;
+              break;
+            }
+            if (act.pullRequestCreated?.prUrl) {
+              prUrl = act.pullRequestCreated.prUrl;
+              break;
+            }
+            if (act.createPullRequest?.prUrl) {
+              prUrl = act.createPullRequest.prUrl;
+              break;
+            }
+            if (act.pullRequest?.url) {
+              prUrl = act.pullRequest.url;
+              break;
+            }
+            const actStr = JSON.stringify(act);
+            const match = actStr.match(/https:\/\/github\.com\/[^\s"']+\/pull\/\d+/);
+            if (match) {
+              prUrl = match[0];
+              break;
+            }
+          }
+        } catch (actErr) {
+          console.warn(`Failed to fetch activities for session ${task.jules_session_id}:`, actErr.message);
         }
       }
       
+      // Fallback: check GitHub API directly for open or merged PRs
+      const phase = await queries.getPhase(task.phase_id);
+      if (!prUrl && phase) {
+        try {
+          const repoPrs = await github.listBranches(); // ping
+          const openPrs = await github.getPRsForBranch ? await github.getPRsForBranch(phase.phase_branch) : [];
+          if (openPrs && openPrs.length > 0) {
+            prUrl = openPrs[0].html_url;
+          }
+        } catch (ghErr) {
+          console.warn('GitHub PR fallback check error:', ghErr.message);
+        }
+      }
+
       if (!prUrl) {
-        throw new Error(`Jules session completed but no Pull Request URL was found.`);
+        console.warn(`Jules session ${task.jules_session_id} completed but no PR URL found yet.`);
+        return;
       }
       
       const prNumber = github.getPRNumber(prUrl);
@@ -74,6 +110,29 @@ export async function handleSession(task) {
       }
 
       console.log(`Pull Request URL: ${prUrl} (PR #${prNumber})`);
+
+      // Check if PR is ALREADY merged on GitHub (e.g., manual merge by user)
+      try {
+        const prState = await github.getPR(prNumber);
+        if (prState && (prState.merged || prState.state === 'closed')) {
+          console.log(`PR #${prNumber} for task #${task.id} is already MERGED on GitHub. Marking task merged.`);
+          await queries.updateTaskStatus(task.id, 'merged', {
+            pr_url: prUrl,
+            pr_number: prNumber
+          });
+          
+          try {
+            const ready = await queries.getQueuedReadyTasks(task.phase_id);
+            const nextTitle = ready[0]?.title;
+            await telegram.sendTaskMergedNotification(task.title, task.id, prUrl, phase ? phase.phase_branch : 'phase branch', nextTitle);
+          } catch (tgErr) {
+            console.error('Telegram notification error:', tgErr);
+          }
+          return;
+        }
+      } catch (prCheckErr) {
+        console.warn(`Could not check PR #${prNumber} state from GitHub:`, prCheckErr.message);
+      }
       
       // Update task in DB
       await queries.updateTaskStatus(task.id, 'pr_open', {
@@ -81,7 +140,14 @@ export async function handleSession(task) {
         pr_number: prNumber
       });
       
-      // Fetch updated task from DB to pass to reviewer (contains new pr_url and pr_number)
+      // Send Telegram PR created alert
+      try {
+        await telegram.sendPRCreatedNotification(task.title, task.id, prUrl);
+      } catch (tgErr) {
+        console.error('Failed to send Telegram PR notification:', tgErr);
+      }
+
+      // Fetch updated task from DB to pass to reviewer
       const updatedTask = await queries.getTask(task.id);
       
       // Trigger review and merge
@@ -92,11 +158,13 @@ export async function handleSession(task) {
     case 'FAILED': {
       console.log(`Jules session ${task.jules_session_id} failed.`);
       
-      if (task.retry_count < 1) {
-        console.log(`Retrying task #${task.id}. Initializing a new Jules session.`);
+      const maxRetries = 2;
+      if (task.retry_count < maxRetries) {
+        const nextAttempt = task.retry_count + 1;
+        console.log(`Retrying task #${task.id} (Attempt ${nextAttempt}/${maxRetries}). Initializing a new Jules session.`);
         
         const phase = await queries.getPhase(task.phase_id);
-        const phaseBranch = phase.phase_branch;
+        const phaseBranch = phase ? phase.phase_branch : 'main';
         
         const prompt = `${task.description}
 
@@ -114,15 +182,21 @@ Note: The previous attempt failed. Please try a different approach.`;
         
         // Update task database record
         await queries.updateTaskStatus(task.id, 'running', {
-          retry_count: task.retry_count + 1,
+          retry_count: nextAttempt,
           jules_session_id: sessionId
         });
         
+        try {
+          await telegram.sendNotification(`⚠️ Task #${task.id} ("${task.title}") session failed. Auto-retrying (Attempt ${nextAttempt}/${maxRetries})...`);
+        } catch (tgErr) {
+          console.error('Failed to send Telegram retry alert:', tgErr);
+        }
+
         console.log(`Task #${task.id} retried. New Session ID: ${sessionId}`);
       } else {
-        console.log(`Task #${task.id} failed after maximum retries.`);
+        console.log(`Task #${task.id} failed after ${maxRetries} retries.`);
         await queries.updateTaskStatus(task.id, 'failed');
-        await telegram.sendNotification(`Task failed after retry limit: "${task.title}"`);
+        await telegram.sendNotification(`❌ Task failed after ${maxRetries} retries: "${task.title}"`);
       }
       break;
     }

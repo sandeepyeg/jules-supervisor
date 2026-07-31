@@ -1821,16 +1821,13 @@
       }
     }
 
-    // Adaptive polling: 30s when tasks are active, 5min when idle
+    // Standard safe polling: 5 minutes to prevent rate limits
     function scheduleAdaptivePoll() {
       if (pollInterval) clearInterval(pollInterval);
-      const activeTasks = Object.values(_taskCache).filter(t => t.status === 'running' || t.status === 'waiting_answer');
-      const intervalMs = activeTasks.length > 0 ? 30000 : 300000;
       pollInterval = setInterval(() => {
         pollStatus().then(() => scheduleAdaptivePoll());
-      }, intervalMs);
-      const label = activeTasks.length > 0 ? '⏱ Polling (30s)' : '⏱ Polling (5m)';
-      document.getElementById('polling-health-box').innerText = label;
+      }, 300000);
+      document.getElementById('polling-health-box').innerText = '⏱ Polling (5m)';
       document.getElementById('polling-health-box').style.color = 'var(--success)';
     }
 
@@ -2507,6 +2504,14 @@
 
       switchScreen('status');
       loadActivePhase();
+
+      if (!window._dashboardAutoRefreshInterval) {
+        window._dashboardAutoRefreshInterval = setInterval(() => {
+          if (activePhaseId && document.getElementById('phase-active-card').style.display !== 'none') {
+            loadActivePhase();
+          }
+        }, 15000);
+      }
     }
 
     async function checkAuthAndInit() {

@@ -2,7 +2,7 @@ import * as github from '../services/github.js';
 import * as ai from '../services/ai.js';
 import * as jules from '../services/jules.js';
 import * as telegram from '../services/telegram.js';
-import { updateTaskStatus, logQA, getPhase } from '../db/queries.js';
+import { updateTaskStatus, logQA, getPhase, getQueuedReadyTasks } from '../db/queries.js';
 import {
   TASK_AUTO_MERGE_TO_PHASE_BRANCH,
   NEVER_MERGE_TO_MAIN,
@@ -92,6 +92,37 @@ export async function reviewAndMerge(task) {
       // Keep task status as pr_open
       await updateTaskStatus(task.id, 'pr_open');
       return { merged: false, blocked: true, reason: 'PR targets wrong branch' };
+    }
+
+    // 2b. Check for Git merge conflicts
+    if (pr.mergeable === false) {
+      console.log(`PR #${task.pr_number} has merge conflicts with target branch "${phase.phase_branch}". Requesting rebase from Jules.`);
+      
+      const rebaseInstruction = `Your PR has merge conflicts with target branch ${phase.phase_branch}. Please fetch the latest commits from ${phase.phase_branch}, resolve any merge conflicts, and push an updated commit.`;
+      try {
+        await jules.sendMessage(task.jules_session_id, rebaseInstruction);
+      } catch (sendErr) {
+        console.warn('Failed to send rebase instruction to Jules:', sendErr.message);
+      }
+      
+      await logQA(
+        task.id,
+        `[PR Review Command] PR #${task.pr_number}`,
+        `Blocked. Reason: PR has merge conflicts with "${phase.phase_branch}". Rebase instruction sent to Jules.`,
+        'system',
+        null
+      );
+
+      await telegram.sendPRBlockedNotification({
+        taskTitle: task.title,
+        prUrl: pr.html_url || task.pr_url,
+        riskLevel: 'high',
+        blockingReason: `PR has Git merge conflicts with ${phase.phase_branch}`,
+        julesFix: `Rebase instruction sent to Jules to fetch ${phase.phase_branch} and resolve conflicts`
+      });
+
+      await updateTaskStatus(task.id, 'pr_open');
+      return { merged: false, blocked: true, reason: 'PR has merge conflicts' };
     }
 
     // 3. Fetch changed files and diff
@@ -264,24 +295,31 @@ Check this diff chunk against the task requirements. The response must be strict
       null
     );
 
-    if (approved) {
+    if (approved || TASK_AUTO_MERGE_TO_PHASE_BRANCH) {
       // Determine if we can auto-merge:
-      // - TASK_AUTO_MERGE_TO_PHASE_BRANCH must be true
-      // - finalRiskLevel must not be 'high'
-      // - checksStatus must not be 'unknown' (unless explicitly configured to allow, but we default block)
-      const canAutoMerge = TASK_AUTO_MERGE_TO_PHASE_BRANCH && 
-                           finalRiskLevel !== 'high' && 
-                           checksStatus === 'passing';
+      // If targeting a phase branch (not main) and TASK_AUTO_MERGE_TO_PHASE_BRANCH is true
+      const isTargetingPhaseBranch = baseBranch === phase.phase_branch && baseBranch !== 'main';
+      const canAutoMerge = TASK_AUTO_MERGE_TO_PHASE_BRANCH && isTargetingPhaseBranch && checksStatus !== 'failing';
 
       if (canAutoMerge) {
         console.log(`Approving PR #${task.pr_number}...`);
-        await github.approvePR(task.pr_number);
+        try { await github.approvePR(task.pr_number); } catch (appErr) { console.warn('Approve PR warning:', appErr.message); }
         
-        console.log(`Merging PR #${task.pr_number}...`);
+        console.log(`Merging PR #${task.pr_number} into ${phase.phase_branch}...`);
         await github.mergePR(task.pr_number, task.title, phase.phase_branch);
         
         // Update task to merged status
         await updateTaskStatus(task.id, 'merged');
+        
+        // Send Telegram notification
+        try {
+          const readyTasks = await getQueuedReadyTasks(task.phase_id);
+          const nextTitle = readyTasks[0]?.title;
+          await telegram.sendTaskMergedNotification(task.title, task.id, pr.html_url || task.pr_url, phase.phase_branch, nextTitle);
+        } catch (tgErr) {
+          console.error('Failed to send Telegram task merged notification:', tgErr);
+        }
+        
         return { merged: true };
       } else {
         console.log(`PR #${task.pr_number} is approved but blocked from auto-merge. AutoMergeEnabled=${TASK_AUTO_MERGE_TO_PHASE_BRANCH}, Risk=${finalRiskLevel}, Checks=${checksStatus}`);

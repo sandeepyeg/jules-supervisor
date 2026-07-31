@@ -19,7 +19,7 @@ export async function startReadyTasks(phaseId, phaseBranch) {
 
   for (const task of readyTasks) {
     try {
-      // Build the prompt containing the task description and target branch instruction
+      // Build the prompt containing the task description, direct execution mandate, and target branch instruction
       const prompt = `${task.description}
 
 Target branch: ${phaseBranch}
@@ -27,7 +27,10 @@ Open your pull request against ${phaseBranch}.
 Do not open your PR against main.
 Do not merge into main.
 Keep the change limited to this task.
-Add or update tests when behavior changes.`;
+Add or update tests when behavior changes.
+
+⚡ DIRECT EXECUTION INSTRUCTION:
+Proceed directly to implementation and code execution. Do NOT ask clarifying questions, do NOT request plan approval, and do NOT wait for chat feedback. Implement the changes, write necessary unit tests, commit, push, and open the Pull Request against ${phaseBranch} immediately.`;
       
       // Start the Jules session
       const { sessionId } = await createSession(prompt, phaseBranch, task.jules_notes);

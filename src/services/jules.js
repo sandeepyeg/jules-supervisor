@@ -101,23 +101,35 @@ export async function listActivities(sessionId) {
 export async function getLatestAgentMessage(sessionId) {
   const activities = await listActivities(sessionId);
   
-  // Sort activities chronologically by createTime if not already sorted, or find the latest.
-  // The API returns them, but let's filter first: originator = 'agent' and messageGenerated exists
-  const agentMessages = activities.filter(
-    act => act.originator === 'agent' && act.messageGenerated && act.messageGenerated.message
-  );
+  const extracted = [];
+  for (const act of activities) {
+    if (act.originator !== 'agent') continue;
+    
+    let text = act.agentMessaged?.agentMessage ||
+               act.messageGenerated?.message ||
+               act.agentMessage?.text ||
+               act.message?.text ||
+               (typeof act.text === 'string' ? act.text : null);
 
-  if (agentMessages.length === 0) {
+    if (text) {
+      extracted.push({
+        text,
+        activityId: act.name || act.id,
+        createTime: act.createTime || new Date().toISOString()
+      });
+    }
+  }
+
+  if (extracted.length === 0) {
     return null;
   }
 
-  // Sort by createTime ascending so we can grab the last (most recent) one, or just take the last element if API is pre-sorted
-  agentMessages.sort((a, b) => new Date(a.createTime) - new Date(b.createTime));
-  const latest = agentMessages[agentMessages.length - 1];
+  extracted.sort((a, b) => new Date(a.createTime) - new Date(b.createTime));
+  const latest = extracted[extracted.length - 1];
 
   return {
-    text: latest.messageGenerated.message,
-    activityId: latest.name // Use name as unique activityId
+    text: latest.text,
+    activityId: latest.activityId
   };
 }
 

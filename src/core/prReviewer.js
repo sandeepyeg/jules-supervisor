@@ -12,9 +12,7 @@ import {
   STRONG_REVIEW_PROVIDER,
   STRONG_REVIEW_MODEL,
   PRIMARY_SUPERVISOR_PROVIDER,
-  PRIMARY_SUPERVISOR_MODEL,
-  BACKUP_SUPERVISOR_PROVIDER,
-  BACKUP_SUPERVISOR_MODEL
+  PRIMARY_SUPERVISOR_MODEL
 } from './config.js';
 
 /**
@@ -216,29 +214,30 @@ Check this diff chunk against the task requirements. The response must be strict
 }`;
 
       let chunkResult;
-      let primarySucceeded = false;
-      let primaryError = null;
       try {
-        const responseText = await ai.askModel(provider, model, prompt, { returnJson: true, temperature: 0.1 });
-        const clean = responseText.replace(/```json|```/g, '').trim();
-        chunkResult = JSON.parse(clean);
-        primarySucceeded = true;
-      } catch (err) {
-        primaryError = err;
-        console.warn(`Primary AI review call or JSON parsing failed for chunk ${idx + 1}. Routing to backup supervisor model... Error: ${err.message}`);
-      }
-
-      if (!primarySucceeded) {
-        try {
-          const responseText = await ai.askModel(BACKUP_SUPERVISOR_PROVIDER, BACKUP_SUPERVISOR_MODEL, prompt, { returnJson: true, temperature: 0.1 });
-          const clean = responseText.replace(/```json|```/g, '').trim();
-          chunkResult = JSON.parse(clean);
-        } catch (fallbackError) {
-          console.error(`Fallback AI review call or JSON parsing also failed for chunk ${idx + 1}:`, fallbackError);
-          approved = false;
-          blockingIssues.push(`AI review chunk ${idx + 1} failed: Primary error: ${primaryError.message}. Fallback error: ${fallbackError.message}`);
-          continue;
+        const reviewResult = await ai.askJsonGoogleFirst(
+          provider,
+          model,
+          prompt,
+          { returnJson: true, temperature: 0.1 },
+          parsed => (
+            Object.prototype.hasOwnProperty.call(parsed, 'approved') &&
+            typeof parsed.riskLevel === 'string' &&
+            typeof parsed.summary === 'string' &&
+            Array.isArray(parsed.missingRequirements) &&
+            Array.isArray(parsed.filesReviewed) &&
+            Array.isArray(parsed.blockingIssues)
+          )
+        );
+        chunkResult = reviewResult.parsed;
+        if (reviewResult.paidFallbackUsed) {
+          console.warn(`Paid fallback model used for PR #${task.pr_number} chunk ${idx + 1}: ${reviewResult.provider}/${reviewResult.model}`);
         }
+      } catch (reviewError) {
+        console.error(`AI review failed for chunk ${idx + 1}:`, reviewError);
+        approved = false;
+        blockingIssues.push(`AI review chunk ${idx + 1} failed: ${reviewError.message}`);
+        continue;
       }
 
       if (chunkResult.approved === false || chunkResult.approved === 'false') {

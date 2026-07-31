@@ -4,7 +4,7 @@ import {
   PRIMARY_SUPERVISOR_MODEL,
   BACKUP_SUPERVISOR_PROVIDER,
   BACKUP_SUPERVISOR_MODEL,
-  AI_CONFIDENCE_THRESHOLD
+  GOOGLE_FALLBACK_MODELS
 } from '../core/config.js';
 
 const fetch = (...args) => (globalThis.__mockFetch || nodeFetch)(...args);
@@ -105,6 +105,64 @@ export async function askModel(provider, model, prompt, options = {}) {
   }
 }
 
+export function parseAiJson(str) {
+  if (!str) return null;
+  try {
+    const match = str.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]);
+  } catch (_) {}
+  return null;
+}
+
+function getGoogleModelFallbackOrder(primaryProvider, primaryModel) {
+  const models = [];
+  if (primaryProvider === 'google' && primaryModel) {
+    models.push(primaryModel);
+  }
+  models.push(
+    ...GOOGLE_FALLBACK_MODELS
+      .split(',')
+      .map(model => model.trim())
+      .filter(Boolean)
+  );
+  return [...new Set(models)];
+}
+
+/**
+ * Calls Google models first and only spends paid fallback tokens when every
+ * configured Google model fails to return usable JSON.
+ */
+export async function askJsonGoogleFirst(primaryProvider, primaryModel, prompt, options = {}, isUsable = () => true) {
+  const googleErrors = [];
+
+  for (const model of getGoogleModelFallbackOrder(primaryProvider, primaryModel)) {
+    try {
+      const text = await askModel('google', model, prompt, options);
+      const parsed = parseAiJson(text);
+      if (parsed && isUsable(parsed)) {
+        return { text, parsed, provider: 'google', model, paidFallbackUsed: false };
+      }
+      googleErrors.push(`google/${model}: returned invalid JSON shape`);
+    } catch (error) {
+      googleErrors.push(`google/${model}: ${error.message}`);
+      console.warn(`Google AI call failed (${model}); trying next Google model if available:`, error.message);
+    }
+  }
+
+  console.log(`All configured Google models failed or returned unusable JSON. Routing to paid fallback (${BACKUP_SUPERVISOR_PROVIDER}/${BACKUP_SUPERVISOR_MODEL}).`);
+
+  try {
+    const text = await askModel(BACKUP_SUPERVISOR_PROVIDER, BACKUP_SUPERVISOR_MODEL, prompt, options);
+    const parsed = parseAiJson(text);
+    if (parsed && isUsable(parsed)) {
+      return { text, parsed, provider: BACKUP_SUPERVISOR_PROVIDER, model: BACKUP_SUPERVISOR_MODEL, paidFallbackUsed: true };
+    }
+    throw new Error('paid fallback returned invalid JSON shape');
+  } catch (error) {
+    throw new Error(`All Google models failed and paid fallback failed. Google errors: ${googleErrors.join(' | ')}. Paid fallback error: ${error.message}`);
+  }
+}
+
 /**
  * Backward compatibility: Calls Gemini Flash.
  */
@@ -124,10 +182,9 @@ export async function askDeepSeek(prompt, returnJson = false) {
 /**
  * Formats a query and retrieves a structured answer with confidence metrics from the model.
  * Defaults to PRIMARY_SUPERVISOR_PROVIDER/MODEL.
- * Falls back to BACKUP_SUPERVISOR_PROVIDER/MODEL when:
- * 1. Primary call fails
- * 2. JSON parse fails
- * 3. Confidence is lower than the threshold
+ * Uses paid fallback only when every configured Google model fails to return
+ * usable JSON. Low-confidence Google answers are escalated to Telegram instead
+ * of spending paid fallback tokens.
  */
 export async function askWithConfidence(contextPrompt, question) {
   const prompt = `You are a supervisor for an AI coding agent. Given this project context and the agent's question, provide the best answer you can.
@@ -141,67 +198,32 @@ ${question}
 Respond ONLY with valid JSON in this exact format:
 { "confidence": <number 1-10>, "answer": "<your answer>", "reason": "<why this confidence>" }`;
 
-  let lastError = null;
-  let text = null;
-  let providerUsed = PRIMARY_SUPERVISOR_PROVIDER;
-  let modelUsed = PRIMARY_SUPERVISOR_MODEL;
-  let parsed = null;
-
-  function parseAiJson(str) {
-    if (!str) return null;
-    try {
-      const match = str.match(/\{[\s\S]*\}/);
-      if (match) return JSON.parse(match[0]);
-    } catch (_) {}
-    return null;
-  }
-
-  // Try primary
   try {
-    text = await askModel(PRIMARY_SUPERVISOR_PROVIDER, PRIMARY_SUPERVISOR_MODEL, prompt, { returnJson: true, temperature: 0.2 });
-    parsed = parseAiJson(text);
+    const result = await askJsonGoogleFirst(
+      PRIMARY_SUPERVISOR_PROVIDER,
+      PRIMARY_SUPERVISOR_MODEL,
+      prompt,
+      { returnJson: true, temperature: 0.2 },
+      parsed => !isNaN(Number(parsed.confidence))
+    );
+
+    return {
+      confidence: Number(result.parsed.confidence),
+      answer: result.parsed.answer,
+      reason: result.parsed.reason,
+      provider: result.provider,
+      model: result.model,
+      paidFallbackUsed: result.paidFallbackUsed
+    };
   } catch (error) {
-    console.error(`Primary AI call failed (${PRIMARY_SUPERVISOR_PROVIDER}/${PRIMARY_SUPERVISOR_MODEL}):`, error);
-    lastError = error;
+    console.error('AI confidence call failed across Google and paid fallback:', error.message);
+    return {
+      confidence: 0,
+      answer: '',
+      reason: error.message,
+      provider: BACKUP_SUPERVISOR_PROVIDER,
+      model: BACKUP_SUPERVISOR_MODEL,
+      paidFallbackUsed: true
+    };
   }
-
-  // Backup conditions
-  const needsBackup = !parsed || isNaN(Number(parsed.confidence)) || Number(parsed.confidence) < AI_CONFIDENCE_THRESHOLD;
-
-  if (needsBackup) {
-    const reasonForBackup = !parsed 
-      ? 'Primary model call or JSON parsing failed' 
-      : `Primary confidence (${parsed.confidence}) was below threshold (${AI_CONFIDENCE_THRESHOLD})`;
-    
-    console.log(`Routing to backup model (${BACKUP_SUPERVISOR_PROVIDER}/${BACKUP_SUPERVISOR_MODEL}) because: ${reasonForBackup}`);
-    
-    try {
-      const backupText = await askModel(BACKUP_SUPERVISOR_PROVIDER, BACKUP_SUPERVISOR_MODEL, prompt, { returnJson: true, temperature: 0.2 });
-      const parsedBackup = parseAiJson(backupText);
-      
-      if (parsedBackup && !isNaN(Number(parsedBackup.confidence))) {
-        parsed = parsedBackup;
-        providerUsed = BACKUP_SUPERVISOR_PROVIDER;
-        modelUsed = BACKUP_SUPERVISOR_MODEL;
-      }
-    } catch (backupError) {
-      console.error(`Backup AI call failed (${BACKUP_SUPERVISOR_PROVIDER}/${BACKUP_SUPERVISOR_MODEL}):`, backupError);
-      
-      if (!parsed) {
-        return {
-          confidence: 0,
-          answer: '',
-          reason: `Both primary and backup models failed. Primary error: ${lastError?.message || 'unknown'}. Backup error: ${backupError.message}`
-        };
-      }
-    }
-  }
-
-  return {
-    confidence: Number(parsed.confidence),
-    answer: parsed.answer,
-    reason: parsed.reason,
-    provider: providerUsed,
-    model: modelUsed
-  };
 }

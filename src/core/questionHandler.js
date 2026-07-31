@@ -14,6 +14,13 @@ import { telegramEmitter } from '../services/telegram.js';
 
 const AI_CONFIDENCE_THRESHOLD = parseInt(process.env.AI_CONFIDENCE_THRESHOLD || '7', 10);
 
+function getQaAnsweredBy(provider) {
+  if (provider === 'google') return 'gemini';
+  if (provider === 'openrouter') return 'deepseek';
+  if (['gemini', 'deepseek', 'telegram', 'system'].includes(provider)) return provider;
+  return 'system';
+}
+
 /**
  * Handles an agent question activity, choosing between AI auto-answering and Telegram escalation.
  */
@@ -53,7 +60,7 @@ export async function handleQuestion(task, question, activityId) {
     await jules.sendMessage(task.jules_session_id, result.answer);
     
     // Log to QA log
-    await logQA(task.id, question, result.answer, result.provider || 'ai', result.confidence);
+    await logQA(task.id, question, result.answer, getQaAnsweredBy(result.provider), result.confidence);
     
     // Update task back to running
     await updateTaskStatus(task.id, 'running');

@@ -59,6 +59,10 @@ export function mockQuery(sql, params = []) {
       newRecord.pr_number = null;
       newRecord.last_activity_id = null;
       newRecord.retry_count = 0;
+      newRecord.last_reviewed_sha = null;
+      newRecord.last_review_verdict = null;
+      newRecord.pr_revision_count = 0;
+      newRecord.nudge_sent = false;
       newRecord.created_at = new Date();
       newRecord.updated_at = new Date();
       inMemoryDb.tasks.push(newRecord);
@@ -325,7 +329,16 @@ export async function runSchema() {
 
   try {
     for (const statement of statements) {
-      await connection.query(statement);
+      try {
+        await connection.query(statement);
+      } catch (error) {
+        // ALTER TABLE ADD COLUMN statements re-run on every boot; ignore "column
+        // already exists" so a statement after the first boot doesn't abort the rest.
+        if (error.code === 'ER_DUP_FIELDNAME') {
+          continue;
+        }
+        throw error;
+      }
     }
     console.log('Database schema checked/initialized successfully.');
   } catch (error) {

@@ -72,7 +72,23 @@ export async function updateTaskStatus(taskId, status, extra = {}) {
     fields.push('retry_count = ?');
     values.push(extra.retry_count);
   }
-  
+  if (extra.last_reviewed_sha !== undefined) {
+    fields.push('last_reviewed_sha = ?');
+    values.push(extra.last_reviewed_sha);
+  }
+  if (extra.last_review_verdict !== undefined) {
+    fields.push('last_review_verdict = ?');
+    values.push(extra.last_review_verdict);
+  }
+  if (extra.pr_revision_count !== undefined) {
+    fields.push('pr_revision_count = ?');
+    values.push(extra.pr_revision_count);
+  }
+  if (extra.nudge_sent !== undefined) {
+    fields.push('nudge_sent = ?');
+    values.push(extra.nudge_sent);
+  }
+
   values.push(taskId);
   const sql = `UPDATE tasks SET ${fields.join(', ')} WHERE id = ?`;
   await pool.query(sql, values);

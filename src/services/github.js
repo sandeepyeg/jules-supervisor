@@ -123,6 +123,51 @@ export async function approvePR(prNumber) {
 }
 
 /**
+ * Posts a "request changes" review on a pull request, giving blocking feedback a
+ * durable, visible record on GitHub in addition to the internal Jules session message.
+ */
+export async function requestChangesOnPR(prNumber, body) {
+  const repoUrl = getRepoUrl();
+  const url = `${repoUrl}/pulls/${prNumber}/reviews`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ event: 'REQUEST_CHANGES', body })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to request changes on PR #${prNumber}: ${response.statusText} - ${errText}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Posts a plain (non-review) comment on a pull request. Used as a fallback when
+ * requestChangesOnPR fails (e.g. a self-review restriction), and for informational
+ * notes like "auto-review limit reached" that aren't a formal change request.
+ */
+export async function addPRComment(prNumber, body) {
+  const repoUrl = getRepoUrl();
+  const url = `${repoUrl}/issues/${prNumber}/comments`;
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify({ body })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to comment on PR #${prNumber}: ${response.statusText} - ${errText}`);
+  }
+
+  return response.json();
+}
+
+/**
  * Merges a pull request using the squash method.
  */
 export async function mergePR(prNumber, prTitle, expectedBaseBranch) {

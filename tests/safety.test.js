@@ -36,8 +36,13 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
   let mockPRState = 'open';
   let mockPRChecksState = 'passing';
   let mockPRStatusTotalCount = 1;
+  let mockPRSha = 'sha123';
   let approveCalled = false;
   let mergeCalled = false;
+  let requestChangesCalled = false;
+  const requestChangesBodies = [];
+  const prCommentBodies = [];
+  let mockOpenPRsForBranch = [];
   let mockPRDiff = 'diff --git a/src/core/env.js b/src/core/env.js\n+console.log("changes");';
   let mockPRFiles = [{ filename: 'src/core/env.js' }];
   let mockAICanPass = true;
@@ -49,14 +54,18 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     filesReviewed: ['src/core/env.js'],
     testEvidence: 'Unit tests found in tests/env.test.js',
     blockingIssues: [],
+    advisoryNotes: [],
     followUpInstructions: ''
   };
+
+  let aiCallCount = 0;
 
   globalThis.__mockFetch = async (url, options) => {
     const checkUrl = url.toLowerCase();
 
     // AI Mock
     if (checkUrl.includes('generativelanguage.googleapis.com') || checkUrl.includes('openrouter.ai')) {
+      aiCallCount++;
       return {
         ok: true,
         json: async () => ({
@@ -79,8 +88,22 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     // GitHub Mock
     if (checkUrl.includes('api.github.com')) {
       if (checkUrl.includes('/reviews') && options.method === 'POST') {
-        approveCalled = true;
+        const bodyObj = JSON.parse(options.body);
+        if (bodyObj.event === 'REQUEST_CHANGES') {
+          requestChangesCalled = true;
+          requestChangesBodies.push(bodyObj.body);
+        } else {
+          approveCalled = true;
+        }
         return { ok: true, json: async () => ({}) };
+      }
+      if (checkUrl.includes('/issues/') && checkUrl.includes('/comments') && options.method === 'POST') {
+        const bodyObj = JSON.parse(options.body);
+        prCommentBodies.push(bodyObj.body);
+        return { ok: true, json: async () => ({}) };
+      }
+      if (checkUrl.includes('/pulls?') && checkUrl.includes('state=open')) {
+        return { ok: true, json: async () => mockOpenPRsForBranch };
       }
       if (checkUrl.includes('/merge') && options.method === 'PUT') {
         mergeCalled = true;
@@ -107,7 +130,7 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
             title: 'Mock PR title',
             html_url: 'https://github.com/mock/pull/101',
             base: { ref: mockPRBase },
-            head: { ref: 'feature/task-1', sha: 'sha123' },
+            head: { ref: 'feature/task-1', sha: mockPRSha },
             state: mockPRState,
             merged: mockPRMerged,
             mergeable: mockPRMergeable,
@@ -117,7 +140,7 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
           })
         };
       }
-      if (checkUrl.includes('/commits/sha123/status')) {
+      if (checkUrl.includes(`/commits/${mockPRSha}/status`)) {
         return {
           ok: true,
           json: async () => ({
@@ -126,7 +149,7 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
           })
         };
       }
-      if (checkUrl.includes('/commits/sha123/check-runs')) {
+      if (checkUrl.includes(`/commits/${mockPRSha}/check-runs`)) {
         return {
           ok: true,
           json: async () => ({ check_runs: [] })
@@ -801,5 +824,198 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     const [tasks] = await pool.query('SELECT * FROM tasks WHERE id = ?', [responseBody.taskId]);
     assert.strictEqual(tasks[0].title, 'New Dynamic Task');
     assert.strictEqual(tasks[0].phase_id, phaseId);
+  });
+
+  await t.test('reviewAndMerge reuses the cached verdict and skips the AI call when the PR head sha is unchanged', async () => {
+    mockPRBase = 'feature/phase-10';
+    mockPRSha = 'sha-cache-test';
+    mockPRMergeable = true;
+    mockPRState = 'open';
+    mockPRMerged = false;
+    mockPRChecksState = 'passing';
+    mockPRStatusTotalCount = 1;
+    mockAIResponse.approved = true;
+    mockAIResponse.riskLevel = 'low';
+    mockAIResponse.missingRequirements = [];
+    mockAIResponse.blockingIssues = [];
+    mockAIResponse.advisoryNotes = [];
+    mockAIResponse.testEvidence = 'Tests verified and passing';
+    mockPRFiles = [{ filename: 'src/core/env.js' }];
+
+    process.env.TASK_AUTO_MERGE_TO_PHASE_BRANCH = 'false';
+    reloadConfig();
+
+    await queries.updateTaskStatus(task1Id, 'pr_open', {
+      pr_number: 101,
+      pr_revision_count: 0,
+      last_reviewed_sha: null,
+      last_review_verdict: null
+    });
+
+    const callsBefore = aiCallCount;
+    const firstTask = await queries.getTask(task1Id);
+    await prReviewer.reviewAndMerge(firstTask);
+    assert.ok(aiCallCount > callsBefore, 'first review should call the AI');
+    const callsAfterFirst = aiCallCount;
+
+    // Same task, same PR head sha — second review should reuse the cached verdict.
+    const secondTask = await queries.getTask(task1Id);
+    assert.strictEqual(secondTask.last_reviewed_sha, 'sha-cache-test');
+    await prReviewer.reviewAndMerge(secondTask);
+    assert.strictEqual(aiCallCount, callsAfterFirst, 'cache hit should not call the AI again');
+  });
+
+  await t.test('bounded revision loop: posts GitHub feedback each round, then escalates to a human after the cap', async () => {
+    mockPRBase = 'feature/phase-10';
+    mockPRMergeable = true;
+    mockPRState = 'open';
+    mockPRMerged = false;
+    mockPRChecksState = 'passing';
+    mockPRStatusTotalCount = 1;
+    mockAIResponse.approved = false;
+    mockAIResponse.riskLevel = 'low';
+    mockAIResponse.missingRequirements = [];
+    mockAIResponse.blockingIssues = ['Logic error in connection handling.'];
+    mockAIResponse.advisoryNotes = [];
+    mockAIResponse.testEvidence = 'No tests found';
+    mockPRFiles = [{ filename: 'src/core/env.js' }];
+
+    await queries.updateTaskStatus(task1Id, 'pr_open', {
+      pr_number: 101,
+      pr_revision_count: 0,
+      last_reviewed_sha: null,
+      last_review_verdict: null
+    });
+
+    julesMessages.length = 0;
+    sentTelegramMessages.length = 0;
+    requestChangesCalled = false;
+    requestChangesBodies.length = 0;
+    prCommentBodies.length = 0;
+
+    // Round 1: rejected, under the cap — Jules is messaged and GitHub gets a REQUEST_CHANGES review.
+    mockPRSha = 'sha-revision-round-1';
+    let task = await queries.getTask(task1Id);
+    let result = await prReviewer.reviewAndMerge(task);
+    assert.strictEqual(result.merged, false);
+    assert.strictEqual(julesMessages.length, 1);
+    assert.strictEqual(requestChangesCalled, true);
+    assert.strictEqual(requestChangesBodies.length, 1);
+    assert.ok(requestChangesBodies[0].includes('round 1/2'));
+    let updated = await queries.getTask(task1Id);
+    assert.strictEqual(updated.pr_revision_count, 1);
+
+    // Round 2: Jules pushed a new commit (new sha), still rejected — second and final auto-revision round.
+    mockPRSha = 'sha-revision-round-2';
+    task = await queries.getTask(task1Id);
+    result = await prReviewer.reviewAndMerge(task);
+    assert.strictEqual(result.merged, false);
+    assert.strictEqual(julesMessages.length, 2);
+    assert.strictEqual(requestChangesBodies.length, 2);
+    assert.ok(requestChangesBodies[1].includes('round 2/2'));
+    updated = await queries.getTask(task1Id);
+    assert.strictEqual(updated.pr_revision_count, 2);
+
+    // Round 3: another new commit, still rejected — cap reached, Jules is NOT messaged again.
+    mockPRSha = 'sha-revision-round-3';
+    task = await queries.getTask(task1Id);
+    julesMessages.length = 0;
+    sentTelegramMessages.length = 0;
+    result = await prReviewer.reviewAndMerge(task);
+    assert.strictEqual(result.merged, false);
+    assert.strictEqual(result.escalated, true);
+    assert.strictEqual(julesMessages.length, 0, 'Jules must not be messaged once the revision cap is reached');
+    assert.ok(prCommentBodies.some(b => b.includes('Automated review limit reached')));
+    assert.ok(sentTelegramMessages.some(m => m.text.includes('Auto-review limit reached')));
+    updated = await queries.getTask(task1Id);
+    assert.strictEqual(updated.pr_revision_count, 2, 'revision count must not climb past the cap');
+  });
+
+  await t.test('advisory notes never block merge and are never sent to Jules', async () => {
+    mockPRBase = 'feature/phase-10';
+    mockPRMergeable = true;
+    mockPRState = 'open';
+    mockPRMerged = false;
+    mockPRChecksState = 'passing';
+    mockPRStatusTotalCount = 1;
+    mockPRSha = 'sha-advisory-test';
+    mockAIResponse.approved = true;
+    mockAIResponse.riskLevel = 'low';
+    mockAIResponse.missingRequirements = [];
+    mockAIResponse.blockingIssues = [];
+    mockAIResponse.advisoryNotes = ['Consider adding a screenshot check for this UI change.'];
+    mockAIResponse.testEvidence = 'Tests verified and passing';
+    mockPRFiles = [{ filename: 'src/core/env.js' }];
+
+    process.env.TASK_AUTO_MERGE_TO_PHASE_BRANCH = 'true';
+    process.env.BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH = 'false';
+    reloadConfig();
+
+    await queries.updateTaskStatus(task1Id, 'pr_open', {
+      pr_number: 101,
+      pr_revision_count: 0,
+      last_reviewed_sha: null,
+      last_review_verdict: null
+    });
+
+    julesMessages.length = 0;
+    sentTelegramMessages.length = 0;
+
+    const task = await queries.getTask(task1Id);
+    const result = await prReviewer.reviewAndMerge(task);
+
+    assert.strictEqual(result.merged, true);
+    assert.strictEqual(julesMessages.length, 0, 'advisory-only findings must never be sent to Jules');
+    assert.ok(sentTelegramMessages.some(m => m.text.includes('Advisory notes') && m.text.includes('screenshot check')));
+
+    process.env.TASK_AUTO_MERGE_TO_PHASE_BRANCH = 'false';
+    reloadConfig();
+  });
+
+  await t.test('a genuinely new PR resets the revision count and review cache instead of inheriting a stale one', async () => {
+    mockPRBase = 'feature/phase-10';
+    mockPRMergeable = true;
+    mockPRState = 'open';
+    mockPRMerged = false;
+    mockPRChecksState = 'passing';
+    mockPRStatusTotalCount = 1;
+    mockPRSha = 'sha-reset-test';
+    mockAIResponse.approved = true;
+    mockAIResponse.riskLevel = 'low';
+    mockAIResponse.missingRequirements = [];
+    mockAIResponse.blockingIssues = [];
+    mockAIResponse.advisoryNotes = [];
+    mockAIResponse.testEvidence = 'Tests verified and passing';
+    mockPRFiles = [{ filename: 'src/core/env.js' }];
+
+    const resetSessionId = 'session_reset_test_1234567890';
+    mockOpenPRsForBranch = [{
+      number: 202,
+      html_url: 'https://github.com/mock/pull/202',
+      head: { ref: `jules/${resetSessionId}-fix` },
+      base: { ref: 'feature/phase-10' }
+    }];
+
+    // Simulate a task that used up its revision attempts on an earlier, abandoned PR.
+    await queries.updateTaskStatus(task1Id, 'running', {
+      pr_number: null,
+      pr_revision_count: 2,
+      last_reviewed_sha: 'stale-sha-from-abandoned-pr',
+      last_review_verdict: '{"stale":"verdict from a different PR"}',
+      jules_session_id: resetSessionId
+    });
+
+    const staleTask = await queries.getTask(task1Id);
+    assert.strictEqual(staleTask.pr_number, null);
+
+    await sessionHandler.handleSession(staleTask);
+
+    const updated = await queries.getTask(task1Id);
+    assert.strictEqual(updated.pr_number, 202);
+    assert.strictEqual(updated.pr_revision_count, 0, 'revision count from the abandoned PR must not carry over');
+    assert.strictEqual(updated.last_reviewed_sha, 'sha-reset-test', 'stale cache must be replaced by a fresh review of the new PR');
+    assert.notStrictEqual(updated.last_review_verdict, '{"stale":"verdict from a different PR"}');
+
+    mockOpenPRsForBranch = [];
   });
 });

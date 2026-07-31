@@ -67,7 +67,11 @@ export async function handleSession(task) {
 
           await queries.updateTaskStatus(task.id, 'pr_open', {
             pr_url: prUrl0,
-            pr_number: prNumber0
+            pr_number: prNumber0,
+            // Fresh PR for this task — start its own revision/review-cache lifecycle.
+            pr_revision_count: 0,
+            last_reviewed_sha: null,
+            last_review_verdict: null
           });
           try {
             await telegram.sendPRCreatedNotification(task.title, task.id, prUrl0);
@@ -231,23 +235,32 @@ export async function handleSession(task) {
         console.warn(`Could not check PR #${prNumber} state from GitHub:`, prCheckErr.message);
       }
       
-      // Update task in DB
-      await queries.updateTaskStatus(task.id, 'pr_open', {
-        pr_url: prUrl,
-        pr_number: prNumber
-      });
-      
-      // Send Telegram PR created alert
-      try {
-        await telegram.sendPRCreatedNotification(task.title, task.id, prUrl);
-      } catch (tgErr) {
-        console.error('Failed to send Telegram PR notification:', tgErr);
+      // Only treat this as "a PR was just discovered" once — Jules' session state stays
+      // COMPLETED indefinitely while the PR sits open, so without this guard this block
+      // (and the Telegram notification) would otherwise re-fire on every single poll cycle.
+      const isNewlyDiscoveredPr = task.pr_number !== prNumber || task.status !== 'pr_open';
+      if (isNewlyDiscoveredPr) {
+        const isDifferentPrNumber = task.pr_number !== prNumber;
+        await queries.updateTaskStatus(task.id, 'pr_open', {
+          pr_url: prUrl,
+          pr_number: prNumber,
+          // A genuinely different PR number starts its own revision/review-cache lifecycle
+          // — otherwise a counter exhausted on an earlier, abandoned PR would carry over.
+          ...(isDifferentPrNumber ? { pr_revision_count: 0, last_reviewed_sha: null, last_review_verdict: null } : {})
+        });
+
+        // Send Telegram PR created alert
+        try {
+          await telegram.sendPRCreatedNotification(task.title, task.id, prUrl);
+        } catch (tgErr) {
+          console.error('Failed to send Telegram PR notification:', tgErr);
+        }
       }
 
       // Fetch updated task from DB to pass to reviewer
       const updatedTask = await queries.getTask(task.id);
-      
-      // Trigger review and merge
+
+      // Trigger review and merge (cheap on repeat polls thanks to prReviewer's sha cache)
       await prReviewer.reviewAndMerge(updatedTask);
       // Auto-update base branch for all open PRs in phase to prevent merge conflicts
       try {

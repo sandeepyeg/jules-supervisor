@@ -9,6 +9,15 @@ const webhookUrl = process.env.TELEGRAM_WEBHOOK_URL;
 
 export const telegramEmitter = new EventEmitter();
 
+export const TELEGRAM_MAIN_KEYBOARD = {
+  keyboard: [
+    [{ text: "📊 Live Status" }, { text: "⏭ Skip Active Task" }],
+    [{ text: "⏸ Pause Poller" }, { text: "▶️ Resume Poller" }]
+  ],
+  resize_keyboard: true,
+  persistent: true
+};
+
 let bot;
 
 if (!token || token.startsWith('your_')) {
@@ -68,17 +77,95 @@ if (!token || token.startsWith('your_')) {
 
     const text = (msg.text || '').trim();
 
-    // /status, /start, /help commands
-    if (text === '/status' || text === '/start' || text === '/help') {
+    // 1. Live Status Command or Button
+    if (text === '/status' || text === '/start' || text === '/help' || text === '📊 Live Status') {
       try {
         const summary = await getStatusSummaryMessage();
         await bot.sendMessage(chatId, summary.text, {
           parse_mode: 'Markdown',
-          reply_markup: summary.reply_markup
+          reply_markup: TELEGRAM_MAIN_KEYBOARD
         });
       } catch (err) {
         console.error('Error handling Telegram /status command:', err);
-        await bot.sendMessage(chatId, `Error fetching status: ${err.message}`);
+        await bot.sendMessage(chatId, `Error fetching status: ${err.message}`, { reply_markup: TELEGRAM_MAIN_KEYBOARD });
+      }
+      return;
+    }
+
+    // 2. Pause Poller Button
+    if (text === '⏸ Pause Poller') {
+      try {
+        const [phases] = await pool.query("SELECT * FROM phases WHERE status = 'active' ORDER BY id DESC LIMIT 1");
+        const phase = phases[0];
+        if (!phase) {
+          await bot.sendMessage(chatId, "ℹ️ No active phase running to pause.", { reply_markup: TELEGRAM_MAIN_KEYBOARD });
+          return;
+        }
+        const poller = await import('../core/poller.js');
+        poller.stopPoller(phase.id);
+        await bot.sendMessage(chatId, `⏸ Supervisor poller paused for Phase "*${phase.title}*".`, {
+          parse_mode: 'Markdown',
+          reply_markup: TELEGRAM_MAIN_KEYBOARD
+        });
+      } catch (err) {
+        console.error('Error pausing poller:', err);
+        await bot.sendMessage(chatId, `Error pausing poller: ${err.message}`, { reply_markup: TELEGRAM_MAIN_KEYBOARD });
+      }
+      return;
+    }
+
+    // 3. Resume Poller Button
+    if (text === '▶️ Resume Poller') {
+      try {
+        const [phases] = await pool.query("SELECT * FROM phases WHERE status = 'active' ORDER BY id DESC LIMIT 1");
+        const phase = phases[0];
+        if (!phase) {
+          await bot.sendMessage(chatId, "ℹ️ No active phase found to resume.", { reply_markup: TELEGRAM_MAIN_KEYBOARD });
+          return;
+        }
+        const poller = await import('../core/poller.js');
+        poller.startPoller(phase.id);
+        await bot.sendMessage(chatId, `▶️ Supervisor poller resumed for Phase "*${phase.title}*".`, {
+          parse_mode: 'Markdown',
+          reply_markup: TELEGRAM_MAIN_KEYBOARD
+        });
+      } catch (err) {
+        console.error('Error resuming poller:', err);
+        await bot.sendMessage(chatId, `Error resuming poller: ${err.message}`, { reply_markup: TELEGRAM_MAIN_KEYBOARD });
+      }
+      return;
+    }
+
+    // 4. Skip Active Task Button
+    if (text === '⏭ Skip Active Task') {
+      try {
+        const [phases] = await pool.query("SELECT * FROM phases WHERE status = 'active' ORDER BY id DESC LIMIT 1");
+        const phase = phases[0];
+        if (!phase) {
+          await bot.sendMessage(chatId, "ℹ️ No active phase running.", { reply_markup: TELEGRAM_MAIN_KEYBOARD });
+          return;
+        }
+        const [activeTasks] = await pool.query(
+          "SELECT * FROM tasks WHERE phase_id = ? AND status IN ('running', 'waiting_answer', 'pr_open') LIMIT 1",
+          [phase.id]
+        );
+        const task = activeTasks[0];
+        if (!task) {
+          await bot.sendMessage(chatId, "ℹ️ No running task to skip.", { reply_markup: TELEGRAM_MAIN_KEYBOARD });
+          return;
+        }
+        await pool.query("UPDATE tasks SET status = 'skipped' WHERE id = ?", [task.id]);
+        
+        const taskManager = await import('../core/taskManager.js');
+        const started = await taskManager.startReadyTasks(phase.id, phase.phase_branch);
+        
+        await bot.sendMessage(chatId, `⏭ Task #${task.id} ("*${task.title}*") was skipped. ${started > 0 ? 'Next task started automatically!' : 'No more queued tasks ready.'}`, {
+          parse_mode: 'Markdown',
+          reply_markup: TELEGRAM_MAIN_KEYBOARD
+        });
+      } catch (err) {
+        console.error('Error skipping task:', err);
+        await bot.sendMessage(chatId, `Error skipping task: ${err.message}`, { reply_markup: TELEGRAM_MAIN_KEYBOARD });
       }
       return;
     }

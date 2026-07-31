@@ -374,3 +374,25 @@ export async function listBranches() {
 
   return allBranches;
 }
+
+/**
+ * Automatically merges/rebases base branch updates into an open PR.
+ */
+export async function updatePRBranch(prNumber) {
+  const repoUrl = getRepoUrl();
+  const url = `${repoUrl}/pulls/${prNumber}/update-branch`;
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: getHeaders()
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    console.warn(`Could not auto-update branch for PR #${prNumber}: ${response.statusText} - ${errText}`);
+    return false;
+  }
+
+  const data = await response.json();
+  console.log(`Auto-updated base branch for PR #${prNumber}:`, data.message || 'success');
+  return true;
+}

@@ -2,8 +2,8 @@ import './env.js';
 
 export let PRIMARY_SUPERVISOR_PROVIDER = process.env.PRIMARY_SUPERVISOR_PROVIDER || 'google';
 export let PRIMARY_SUPERVISOR_MODEL = process.env.PRIMARY_SUPERVISOR_MODEL || 'gemini-3.1-flash-lite';
-export let BACKUP_SUPERVISOR_PROVIDER = process.env.BACKUP_SUPERVISOR_PROVIDER || 'openrouter';
-export let BACKUP_SUPERVISOR_MODEL = process.env.BACKUP_SUPERVISOR_MODEL || 'deepseek/deepseek-chat';
+export let BACKUP_SUPERVISOR_PROVIDER = process.env.BACKUP_SUPERVISOR_PROVIDER || 'google';
+export let BACKUP_SUPERVISOR_MODEL = process.env.BACKUP_SUPERVISOR_MODEL || 'gemini-3.5-flash';
 export let STRONG_REVIEW_PROVIDER = process.env.STRONG_REVIEW_PROVIDER || 'google';
 export let STRONG_REVIEW_MODEL = process.env.STRONG_REVIEW_MODEL || 'gemini-3.5-flash';
 

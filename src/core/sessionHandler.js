@@ -175,6 +175,21 @@ export async function handleSession(task) {
       
       // Trigger review and merge
       await prReviewer.reviewAndMerge(updatedTask);
+      // Auto-update base branch for all open PRs in phase to prevent merge conflicts
+      try {
+        if (phase) {
+          const openPrs = await github.getPRsForBranch ? await github.getPRsForBranch(phase.phase_branch) : [];
+          for (const openPr of (openPrs || [])) {
+            if (openPr.number !== prNumber && openPr.state === 'open') {
+              console.log(`Auto-updating base branch for open PR #${openPr.number}...`);
+              await github.updatePRBranch(openPr.number);
+            }
+          }
+        }
+      } catch (autoSyncErr) {
+        console.warn('Auto branch sync warning:', autoSyncErr.message);
+      }
+
       break;
     }
     
@@ -226,7 +241,52 @@ Note: The previous attempt failed. Please try a different approach.`;
     
     case 'IN_PROGRESS':
     default: {
-      console.log(`Session ${task.jules_session_id} is in progress. Waiting for next poll.`);
+      console.log(`Session ${task.jules_session_id} is in progress (State: ${state}).`);
+      
+      const elapsedMs = Date.now() - new Date(task.updated_at || task.created_at).getTime();
+      const elapsedMins = Math.floor(elapsedMs / 60000);
+      
+      // 1. Nudge Jules if in progress for > 20 mins
+      if (elapsedMins >= 20 && elapsedMins < 45 && !task.nudge_sent) {
+        console.log(`Task #${task.id} has been in progress for ${elapsedMins} mins. Sending finish nudge to Jules...`);
+        try {
+          await jules.sendMessage(task.jules_session_id, "Please complete your implementation, run your checks, commit your changes, and open the Pull Request against the target branch now.");
+          await queries.updateTaskStatus(task.id, task.status, { nudge_sent: true });
+        } catch (nudgeErr) {
+          console.warn(`Failed to send nudge for session ${task.jules_session_id}:`, nudgeErr.message);
+        }
+      }
+      
+      // 2. Auto-retry fresh session if stalled for > 45 mins
+      if (elapsedMins >= 45 && task.retry_count < 2) {
+        const nextAttempt = task.retry_count + 1;
+        console.log(`Task #${task.id} stalled for ${elapsedMins} mins. Initializing fresh Jules session (Attempt ${nextAttempt}/2)...`);
+        
+        const phase = await queries.getPhase(task.phase_id);
+        const phaseBranch = phase ? phase.phase_branch : 'main';
+        const prompt = `${task.description}
+
+Target branch: ${phaseBranch}
+Open your pull request against ${phaseBranch}.
+Do not open your PR against main.
+Do not merge into main.
+Keep the change limited to this task.
+Add or update tests when behavior changes.
+
+⚡ DIRECT EXECUTION INSTRUCTION:
+Proceed directly to implementation and code execution. Implement the changes, write unit tests, commit, push, and open the Pull Request against ${phaseBranch} immediately.`;
+
+        const { sessionId } = await jules.createSession(prompt, phaseBranch, task.jules_notes);
+        await queries.updateTaskStatus(task.id, 'running', {
+          retry_count: nextAttempt,
+          jules_session_id: sessionId,
+          updated_at: new Date()
+        });
+        
+        try {
+          await telegram.sendNotification(`🔄 Task #${task.id} ("${task.title}") stalled for ${elapsedMins}m. Restarting fresh session (Attempt ${nextAttempt}/2)...`);
+        } catch (tgErr) {}
+      }
       break;
     }
   }

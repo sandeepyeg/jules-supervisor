@@ -92,6 +92,7 @@ async function runAiDiffReview(task, phase, filenames, rawDiff) {
   }
 
   let approved = true;
+  let reviewerSource = `${provider === 'google' ? 'Google' : 'OpenRouter'} (${model})`;
   const summaries = [];
   const missingRequirements = [];
   const filesReviewedSet = new Set();
@@ -152,7 +153,19 @@ The response must be strict JSON matching this exact format:
       );
       chunkResult = reviewResult.parsed;
       if (reviewResult.paidFallbackUsed) {
+        reviewerSource = `OpenRouter (${reviewResult.model}) [Paid Failover]`;
         console.warn(`Paid fallback model used for PR #${task.pr_number} chunk ${idx + 1}: ${reviewResult.provider}/${reviewResult.model}`);
+        try {
+          await telegram.sendNotification(`⚠️ AI Model Failover for PR #${task.pr_number} ("${task.title}"):\nPrimary Google model (${reviewResult.primaryModelAttempted}) failed. Switched to OpenRouter (${reviewResult.model}).`);
+        } catch (_) {}
+      } else if (reviewResult.googleFallbackUsed) {
+        reviewerSource = `Google (${reviewResult.model}) [Failover from ${reviewResult.primaryModelAttempted}]`;
+        console.warn(`Google fallback model used for PR #${task.pr_number} chunk ${idx + 1}: ${reviewResult.model}`);
+        try {
+          await telegram.sendNotification(`ℹ️ AI Model Failover for PR #${task.pr_number} ("${task.title}"):\nPrimary model ${reviewResult.primaryModelAttempted} hit quota limit. Switched to ${reviewResult.model}.`);
+        } catch (_) {}
+      } else {
+        reviewerSource = `Google (${reviewResult.model})`;
       }
     } catch (reviewError) {
       console.error(`AI review failed for chunk ${idx + 1}:`, reviewError);
@@ -202,6 +215,7 @@ The response must be strict JSON matching this exact format:
   return {
     approved,
     finalRiskLevel,
+    reviewerSource,
     summaries,
     missingRequirements,
     filesReviewed: Array.from(filesReviewedSet),
@@ -250,7 +264,8 @@ export async function reviewAndMerge(task) {
           prUrl: pr.html_url || task.pr_url,
           riskLevel: 'low',
           blockingReason: `PR targets base branch "${baseBranch}" instead of "${phase.phase_branch}"`,
-          julesFix: `Retarget the PR to ${phase.phase_branch}`
+          julesFix: `Retarget the PR to ${phase.phase_branch}`,
+          isHardStop: true
         });
       });
 
@@ -283,7 +298,8 @@ export async function reviewAndMerge(task) {
           prUrl: pr.html_url || task.pr_url,
           riskLevel: 'high',
           blockingReason: `PR has Git merge conflicts with ${phase.phase_branch}`,
-          julesFix: `Rebase instruction sent to Jules to fetch ${phase.phase_branch} and resolve conflicts`
+          julesFix: `Rebase instruction sent to Jules to fetch ${phase.phase_branch} and resolve conflicts`,
+          isHardStop: false
         });
       });
 
@@ -305,7 +321,8 @@ export async function reviewAndMerge(task) {
           prUrl: task.pr_url || github.getPRWebUrl(task.pr_number),
           riskLevel: 'high',
           blockingReason: `PR diff size (${rawDiff.length} chars) exceeds the maximum allowed limit of ${MAX_PR_DIFF_CHARS} chars.`,
-          julesFix: 'Manual human review and merge required'
+          julesFix: 'Manual human review and merge required',
+          isHardStop: true
         });
       });
       return { merged: false, approved: false, reason: 'PR diff size exceeds maximum allowed limit' };
@@ -340,7 +357,7 @@ export async function reviewAndMerge(task) {
       }
     }
 
-    let { approved, finalRiskLevel, summaries, missingRequirements, testEvidences, blockingIssues, followUpInstructions, advisoryNotes } = aggregate;
+    let { approved, finalRiskLevel, reviewerSource, summaries, missingRequirements, testEvidences, blockingIssues, followUpInstructions, advisoryNotes } = aggregate;
 
     // 5. Check for status checks and check runs (always fresh — CI can change independently of the diff)
     const checksStatus = await github.getPRChecks(task.pr_number);
@@ -380,7 +397,7 @@ export async function reviewAndMerge(task) {
     await logQA(
       task.id,
       `[PR Review Command] PR #${task.pr_number}`,
-      `Approved: ${approved}. Risk Level: ${finalRiskLevel}. Summary: ${summaryText}. Blockers: ${blockingText}. Advisory: ${advisoryNotes.join('; ') || 'none'}`,
+      `Approved: ${approved}. Reviewer: ${reviewerSource || 'unknown'}. Risk Level: ${finalRiskLevel}. Summary: ${summaryText}. Blockers: ${blockingText}. Advisory: ${advisoryNotes.join('; ') || 'none'}`,
       'system',
       null
     );
@@ -432,7 +449,8 @@ export async function reviewAndMerge(task) {
         await sendReviewNotificationOnce(task, pr, `ready-${finalRiskLevel}-${checksStatus}`, async () => {
           await telegram.sendPRReadyNotification({
             taskTitle: task.title,
-            prUrl: pr.html_url || task.pr_url
+            prUrl: pr.html_url || task.pr_url,
+            reviewerSource: reviewerSource
           });
         });
 
@@ -450,6 +468,7 @@ export async function reviewAndMerge(task) {
         const revisionPrompt = `Please revise. The following issues were found:\n${blockingIssues.concat(missingRequirements).join('\n')}\n${followUpInstructions.join('\n')}`;
         const githubFeedback = `**Automated review — changes requested (round ${nextRevisionCount}/${MAX_AUTO_REVISION_ATTEMPTS})**
 
+Reviewer: ${reviewerSource || 'AI Reviewer'}
 Risk level: ${finalRiskLevel}
 
 Blocking issues:
@@ -476,7 +495,9 @@ Summary: ${summaryText}${followUpInstructions.length ? `\n\nSuggested fix:\n${fo
             prUrl: pr.html_url || task.pr_url,
             riskLevel: finalRiskLevel,
             blockingReason: blockingText || 'Failing verification requirements',
-            julesFix: `Review blocking issues and update the PR (auto-revision round ${nextRevisionCount}/${MAX_AUTO_REVISION_ATTEMPTS})`
+            julesFix: `Review blocking issues and update the PR (auto-revision round ${nextRevisionCount}/${MAX_AUTO_REVISION_ATTEMPTS})`,
+            reviewerSource: reviewerSource,
+            isHardStop: false
           });
 
           await updateTaskStatus(task.id, 'running', { pr_revision_count: nextRevisionCount });
@@ -487,6 +508,8 @@ Summary: ${summaryText}${followUpInstructions.length ? `\n\nSuggested fix:\n${fo
         console.log(`PR #${task.pr_number} has exhausted ${MAX_AUTO_REVISION_ATTEMPTS} auto-revision attempts. Escalating to human, not messaging Jules again.`);
 
         const escalationComment = `**Automated review limit reached (${MAX_AUTO_REVISION_ATTEMPTS}/${MAX_AUTO_REVISION_ATTEMPTS} revision rounds)** — issues remain and Jules will not be messaged again automatically for this PR. A human needs to take over.
+
+Reviewer: ${reviewerSource || 'AI Reviewer'}
 
 Outstanding blocking issues:
 ${blockingText || 'See review summary in the supervisor QA log.'}`;
@@ -502,8 +525,10 @@ ${blockingText || 'See review summary in the supervisor QA log.'}`;
             taskTitle: task.title,
             prUrl: pr.html_url || task.pr_url,
             riskLevel: finalRiskLevel,
-            blockingReason: `🛑 Auto-review limit reached (${MAX_AUTO_REVISION_ATTEMPTS}/${MAX_AUTO_REVISION_ATTEMPTS}) — ${blockingText || 'issues remain'}`,
-            julesFix: 'Please review and fix this manually — Jules will not be auto-messaged again for this PR.'
+            blockingReason: `Auto-review limit reached (${MAX_AUTO_REVISION_ATTEMPTS}/${MAX_AUTO_REVISION_ATTEMPTS}) — ${blockingText || 'issues remain'}`,
+            julesFix: 'Please review and fix this manually — Jules will not be auto-messaged again for this PR.',
+            reviewerSource: reviewerSource,
+            isHardStop: true
           });
         });
 

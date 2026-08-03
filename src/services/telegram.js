@@ -357,10 +357,18 @@ export async function sendNotification(text) {
 }
 
 /**
- * Sends an alert when a Jules task PR is blocked.
+ * Sends an alert when a Jules task PR is blocked or revision requested.
+ * Uses Yellow ⚠️ icon for soft retries/revisions, and Red 🚨 icon for hard stops/failures.
  */
-export async function sendPRBlockedNotification({ taskTitle, prUrl, riskLevel, blockingReason, julesFix }) {
-  const formatted = `🚨 PR Blocked by Supervisor\n\nTask: ${taskTitle}\nPR URL: ${prUrl}\nRisk Level: ${riskLevel}\nReason: ${blockingReason}\nJules Instruction: ${julesFix}`;
+export async function sendPRBlockedNotification({ taskTitle, prUrl, riskLevel, blockingReason, julesFix, reviewerSource, isHardStop = false }) {
+  const icon = isHardStop ? '🚨' : '⚠️';
+  const header = isHardStop ? 'PR Hard-Blocked / Escalated' : 'PR Revision Requested';
+  let formatted = `${icon} ${header}\n\nTask: ${taskTitle}\nPR URL: ${prUrl}\nRisk Level: ${riskLevel}`;
+  if (reviewerSource) {
+    formatted += `\nReviewer: ${reviewerSource}`;
+  }
+  formatted += `\nReason: ${blockingReason}\nJules Instruction: ${julesFix}`;
+  
   const options = {
     reply_markup: {
       inline_keyboard: [
@@ -375,8 +383,12 @@ export async function sendPRBlockedNotification({ taskTitle, prUrl, riskLevel, b
 /**
  * Sends an alert when a PR is approved but auto-merge is disabled.
  */
-export async function sendPRReadyNotification({ taskTitle, prUrl }) {
-  const formatted = `✅ PR Ready for Review\n\nTask: ${taskTitle}\nPR URL: ${prUrl}\n\nTask PR appears ready for human review/merge into phase branch.`;
+export async function sendPRReadyNotification({ taskTitle, prUrl, reviewerSource }) {
+  let formatted = `✅ PR Ready for Review\n\nTask: ${taskTitle}\nPR URL: ${prUrl}`;
+  if (reviewerSource) {
+    formatted += `\nReviewer: ${reviewerSource}`;
+  }
+  formatted += `\n\nTask PR appears ready for human review/merge into phase branch.`;
   const options = {
     reply_markup: {
       inline_keyboard: [

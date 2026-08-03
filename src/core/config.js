@@ -22,6 +22,25 @@ export let MAX_AUTO_REVISION_ATTEMPTS = parseInt(process.env.MAX_AUTO_REVISION_A
 
 export let POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS || '30000', 10);
 export let TELEGRAM_REMINDER_MS = parseInt(process.env.TELEGRAM_REMINDER_MS || '300000', 10);
+export let DAYTIME_QUESTION_TIMEOUT_MS = parseInt(process.env.DAYTIME_QUESTION_TIMEOUT_MS || '1800000', 10); // 30 mins
+export let MST_OVERNIGHT_START_HOUR = parseInt(process.env.MST_OVERNIGHT_START_HOUR || '22', 10); // 10 PM MST
+export let MST_OVERNIGHT_END_HOUR = parseInt(process.env.MST_OVERNIGHT_END_HOUR || '7', 10); // 7 AM MST
+
+export function isMSTOvernight(date = new Date()) {
+  try {
+    const mstTimeStr = date.toLocaleString("en-US", { timeZone: "America/Denver", hour12: false });
+    const hourStr = mstTimeStr.split(',')[1]?.trim().split(':')[0];
+    const hour = parseInt(hourStr || '0', 10);
+    if (MST_OVERNIGHT_START_HOUR > MST_OVERNIGHT_END_HOUR) {
+      return hour >= MST_OVERNIGHT_START_HOUR || hour < MST_OVERNIGHT_END_HOUR;
+    }
+    return hour >= MST_OVERNIGHT_START_HOUR && hour < MST_OVERNIGHT_END_HOUR;
+  } catch (_) {
+    const utcHour = date.getUTCHours();
+    const mstHour = (utcHour - 7 + 24) % 24;
+    return mstHour >= MST_OVERNIGHT_START_HOUR || mstHour < MST_OVERNIGHT_END_HOUR;
+  }
+}
 
 export function reloadConfig() {
   PRIMARY_SUPERVISOR_PROVIDER = process.env.PRIMARY_SUPERVISOR_PROVIDER || 'google';
@@ -46,4 +65,7 @@ export function reloadConfig() {
 
   POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS || '30000', 10);
   TELEGRAM_REMINDER_MS = parseInt(process.env.TELEGRAM_REMINDER_MS || '300000', 10);
+  DAYTIME_QUESTION_TIMEOUT_MS = parseInt(process.env.DAYTIME_QUESTION_TIMEOUT_MS || '1800000', 10);
+  MST_OVERNIGHT_START_HOUR = parseInt(process.env.MST_OVERNIGHT_START_HOUR || '22', 10);
+  MST_OVERNIGHT_END_HOUR = parseInt(process.env.MST_OVERNIGHT_END_HOUR || '7', 10);
 }

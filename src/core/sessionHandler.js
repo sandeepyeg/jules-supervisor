@@ -4,6 +4,7 @@ import * as queries from '../db/queries.js';
 import * as telegram from '../services/telegram.js';
 import * as questionHandler from './questionHandler.js';
 import * as prReviewer from './prReviewer.js';
+import { DAYTIME_QUESTION_TIMEOUT_MS, isMSTOvernight } from './config.js';
 
 const HANDLED_FEEDBACK_RETRY_MS = parseInt(process.env.HANDLED_FEEDBACK_RETRY_MS || '1800000', 10);
 const FEEDBACK_RETRY_MARKER = '::feedback_retry::';
@@ -101,9 +102,25 @@ export async function handleSession(task) {
     }
     
     case 'AWAITING_USER_FEEDBACK': {
-      // If we've already escalated and are waiting for the Telegram reply, skip
+      // If we've already escalated and are waiting for the Telegram reply, check timeout
       if (task.status === 'waiting_answer') {
-        console.log(`Task #${task.id} is already waiting for user answer. Skipping session handler.`);
+        const elapsedMs = Date.now() - new Date(task.updated_at || task.created_at).getTime();
+        const isOvernight = isMSTOvernight();
+        const isTimeout = elapsedMs >= DAYTIME_QUESTION_TIMEOUT_MS;
+
+        if (isOvernight || isTimeout) {
+          const reason = isOvernight ? 'MST Overnight mode' : `30-minute daytime timeout (${Math.floor(elapsedMs / 60000)}m elapsed)`;
+          console.log(`Task #${task.id} question auto-proceeding: ${reason}.`);
+          const autoInstruction = 'Auto-proceeding after question timeout: Continue implementation using your best judgment, write unit tests, commit, push, and open PR against target branch.';
+          await jules.sendMessage(task.jules_session_id, autoInstruction);
+          try {
+            await queries.logQA(task.id, 'Question timeout', autoInstruction, 'system', 10);
+          } catch (_) {}
+          await queries.updateTaskStatus(task.id, 'running');
+          return;
+        }
+
+        console.log(`Task #${task.id} is waiting for user answer (${Math.floor(elapsedMs / 60000)}/30 mins elapsed). Skipping session handler.`);
         return;
       }
       

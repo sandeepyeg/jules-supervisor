@@ -144,13 +144,24 @@ function getGoogleModelFallbackOrder(primaryProvider, primaryModel) {
  */
 export async function askJsonGoogleFirst(primaryProvider, primaryModel, prompt, options = {}, isUsable = () => true) {
   const googleErrors = [];
+  const configuredModels = getGoogleModelFallbackOrder(primaryProvider, primaryModel);
 
-  for (const model of getGoogleModelFallbackOrder(primaryProvider, primaryModel)) {
+  for (let i = 0; i < configuredModels.length; i++) {
+    const model = configuredModels[i];
     try {
       const text = await askModel('google', model, prompt, options);
       const parsed = parseAiJson(text);
       if (parsed && isUsable(parsed)) {
-        return { text, parsed, provider: 'google', model, paidFallbackUsed: false };
+        return {
+          text,
+          parsed,
+          provider: 'google',
+          model,
+          paidFallbackUsed: false,
+          googleFallbackUsed: i > 0,
+          googleErrors,
+          primaryModelAttempted: configuredModels[0]
+        };
       }
       googleErrors.push(`google/${model}: returned invalid JSON shape`);
     } catch (error) {
@@ -165,7 +176,16 @@ export async function askJsonGoogleFirst(primaryProvider, primaryModel, prompt, 
     const text = await askModel(BACKUP_SUPERVISOR_PROVIDER, BACKUP_SUPERVISOR_MODEL, prompt, options);
     const parsed = parseAiJson(text);
     if (parsed && isUsable(parsed)) {
-      return { text, parsed, provider: BACKUP_SUPERVISOR_PROVIDER, model: BACKUP_SUPERVISOR_MODEL, paidFallbackUsed: true };
+      return {
+        text,
+        parsed,
+        provider: BACKUP_SUPERVISOR_PROVIDER,
+        model: BACKUP_SUPERVISOR_MODEL,
+        paidFallbackUsed: true,
+        googleFallbackUsed: true,
+        googleErrors,
+        primaryModelAttempted: configuredModels[0]
+      };
     }
     throw new Error('paid fallback returned invalid JSON shape');
   } catch (error) {

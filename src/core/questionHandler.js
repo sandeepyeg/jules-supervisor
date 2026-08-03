@@ -7,6 +7,7 @@ import {
   getTask
 } from '../db/queries.js';
 import { buildContext } from './contextBuilder.js';
+import { isMSTOvernight } from './config.js';
 import * as jules from '../services/jules.js';
 import * as telegram from '../services/telegram.js';
 import * as ai from '../services/ai.js';
@@ -26,6 +27,22 @@ function getQaAnsweredBy(provider) {
  */
 export async function handleQuestion(task, question, activityId) {
   console.log(`Handling question for task #${task.id} ("${task.title}"). Activity ID: ${activityId}`);
+
+  // 0. MST Overnight Check: Auto-proceed immediately during overnight hours (10 PM - 7 AM MST)
+  if (isMSTOvernight()) {
+    console.log(`[MST Overnight] Question for task #${task.id} received during overnight hours. Auto-proceeding without waiting.`);
+    const instruction = 'Overnight mode: proceed with implementation using your best judgment. Implement changes, write unit tests, commit, push, and open PR against the target branch.';
+    await jules.sendMessage(task.jules_session_id, instruction);
+    try {
+      await logQA(task.id, question, `[Overnight Auto-Proceed] ${instruction}`, 'system', 10);
+    } catch (logErr) {
+      console.warn(`Failed to log overnight auto-proceed for task #${task.id}:`, logErr.message);
+    }
+    await updateTaskStatus(task.id, 'running', {
+      last_activity_id: activityId
+    });
+    return { escalated: false, answer: instruction, autoProceed: true };
+  }
 
   // 1. If task mode is manual, escalate immediately
   if (task.mode === 'manual') {

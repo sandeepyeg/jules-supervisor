@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS phases (
   depends_on_phase_id INT NULL,
   title VARCHAR(255) NOT NULL,
   description TEXT,
-  status ENUM('draft','queued','active','complete','failed') DEFAULT 'draft',
+  status ENUM('draft','queued','active','paused','complete','failed') DEFAULT 'draft',
   phase_branch VARCHAR(255),
   main_branch VARCHAR(255) DEFAULT 'main',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS phases (
 
 ALTER TABLE phases ADD COLUMN epic_id INT NULL;
 ALTER TABLE phases ADD COLUMN depends_on_phase_id INT NULL;
-ALTER TABLE phases MODIFY COLUMN status ENUM('draft','queued','active','complete','failed') DEFAULT 'draft';
+ALTER TABLE phases MODIFY COLUMN status ENUM('draft','queued','active','paused','complete','failed') DEFAULT 'draft';
 
 CREATE TABLE IF NOT EXISTS tasks (
   id INT AUTO_INCREMENT PRIMARY KEY,

@@ -4,7 +4,7 @@ import assert from 'node:assert';
 import { inMemoryDb, pool, resetInMemoryDb } from '../src/db/connection.js';
 import * as queries from '../src/db/queries.js';
 import { createEpicFromPayload, createPhaseFromPayload } from '../src/core/phaseImport.js';
-import { startEpic, startPhase } from '../src/core/phaseLifecycle.js';
+import { pausePhase, resumePhase, startEpic, startPhase } from '../src/core/phaseLifecycle.js';
 import * as poller from '../src/core/poller.js';
 
 test('startPhase — the action /import on Telegram now triggers automatically', async (t) => {
@@ -200,5 +200,38 @@ test('startPhase — the action /import on Telegram now triggers automatically',
     assert.strictEqual(phase3.status, 'queued');
 
     poller.stopPoller(phaseIds[0]);
+  });
+
+  await t.test('pausePhase and resumePhase persist supervisor pause state', async () => {
+    globalThis.__mockFetch = async (url, options = {}) => {
+      const urlText = String(url).toLowerCase();
+      if (urlText.includes('/git/ref/heads/')) {
+        return { ok: true, status: 200, json: async () => ({ object: { sha: 'pause-base-sha' } }) };
+      }
+      if (urlText.endsWith('/git/refs') && options.method === 'POST') {
+        return { ok: true, status: 201, json: async () => ({ ref: 'refs/heads/pause-branch' }) };
+      }
+      throw new Error(`Unexpected outgoing HTTP fetch call intercepted: ${url}`);
+    };
+
+    const { phaseId } = await createPhaseFromPayload({ title: 'Pause Resume Phase' });
+    await startPhase(phaseId);
+
+    const pauseResult = await pausePhase(phaseId);
+    assert.strictEqual(pauseResult.paused, true);
+    let phase = await queries.getPhase(phaseId);
+    assert.strictEqual(phase.status, 'paused');
+    assert.ok(!poller.getPollerHealth().activePhaseIds.includes(phaseId));
+
+    const skipped = await poller.runPollCycle(phaseId);
+    assert.deepStrictEqual(skipped, { skipped: true, reason: 'manually_paused' });
+
+    const resumeResult = await resumePhase(phaseId);
+    assert.strictEqual(resumeResult.resumed, true);
+    phase = await queries.getPhase(phaseId);
+    assert.strictEqual(phase.status, 'active');
+    assert.ok(poller.getPollerHealth().activePhaseIds.includes(phaseId));
+
+    poller.stopPoller(phaseId);
   });
 });

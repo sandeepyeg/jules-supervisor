@@ -7,7 +7,7 @@ import * as poller from '../core/poller.js';
 import { portalAuth } from './auth.js';
 import { MAX_AUTO_REVISION_ATTEMPTS } from '../core/config.js';
 import { createPhaseFromPayload, createEpicFromPayload, createPhaseInEpicFromPayload } from '../core/phaseImport.js';
-import { startEpic, startPhase } from '../core/phaseLifecycle.js';
+import { pauseEpic, pausePhase, resumeEpic, resumePhase, startEpic, startPhase } from '../core/phaseLifecycle.js';
 
 const router = express.Router();
 
@@ -135,6 +135,28 @@ router.post('/epics/:epicId/start', portalAuth, async (req, res) => {
   }
 });
 
+router.post('/epics/:epicId/pause', portalAuth, async (req, res) => {
+  const epicId = parseInt(req.params.epicId, 10);
+  try {
+    const result = await pauseEpic(epicId);
+    res.json(result);
+  } catch (error) {
+    console.error(`Error pausing epic #${epicId}:`, error);
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+router.post('/epics/:epicId/resume', portalAuth, async (req, res) => {
+  const epicId = parseInt(req.params.epicId, 10);
+  try {
+    const result = await resumeEpic(epicId);
+    res.json(result);
+  } catch (error) {
+    console.error(`Error resuming epic #${epicId}:`, error);
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
 /**
  * POST /api/phases
  * Creates a new phase with a description and its associated tasks, mapping dependencies.
@@ -161,6 +183,28 @@ router.post('/:id/start', portalAuth, async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error starting phase:', error);
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+router.post('/:id/pause', portalAuth, async (req, res) => {
+  const phaseId = parseInt(req.params.id, 10);
+  try {
+    const result = await pausePhase(phaseId);
+    res.json(result);
+  } catch (error) {
+    console.error('Error pausing phase:', error);
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+router.post('/:id/resume', portalAuth, async (req, res) => {
+  const phaseId = parseInt(req.params.id, 10);
+  try {
+    const result = await resumePhase(phaseId);
+    res.json(result);
+  } catch (error) {
+    console.error('Error resuming phase:', error);
     res.status(error.statusCode || 500).json({ error: error.message });
   }
 });

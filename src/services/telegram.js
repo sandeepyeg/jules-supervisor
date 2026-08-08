@@ -156,9 +156,9 @@ if (!token || token.startsWith('your_') || process.env.NODE_ENV === 'test' || pr
           await bot.sendMessage(chatId, "ℹ️ No active phase running to pause.", { reply_markup: TELEGRAM_MAIN_KEYBOARD });
           return;
         }
-        const poller = await import('../core/poller.js');
-        poller.stopPoller(phase.id, { manual: true });
-        await bot.sendMessage(chatId, `⏸ Supervisor poller paused for Phase "${phase.title}".`, {
+        const { pausePhase } = await import('../core/phaseLifecycle.js');
+        await pausePhase(phase.id);
+        await bot.sendMessage(chatId, `⏸ Supervisor paused for Phase "${phase.title}". Jules may keep working, but this supervisor will not poll, launch, review, or merge until resumed.`, {
           reply_markup: TELEGRAM_MAIN_KEYBOARD
         });
       } catch (err) {
@@ -171,15 +171,15 @@ if (!token || token.startsWith('your_') || process.env.NODE_ENV === 'test' || pr
     // 3. Resume Poller Button
     if (text === '▶️ Resume Poller') {
       try {
-        const [phases] = await pool.query("SELECT * FROM phases WHERE status = 'active' ORDER BY id DESC LIMIT 1");
+        const [phases] = await pool.query("SELECT * FROM phases WHERE status = 'paused' ORDER BY id DESC LIMIT 1");
         const phase = phases[0];
         if (!phase) {
-          await bot.sendMessage(chatId, "ℹ️ No active phase found to resume.", { reply_markup: TELEGRAM_MAIN_KEYBOARD });
+          await bot.sendMessage(chatId, "ℹ️ No paused phase found to resume.", { reply_markup: TELEGRAM_MAIN_KEYBOARD });
           return;
         }
-        const poller = await import('../core/poller.js');
-        poller.resumePoller(phase.id);
-        await bot.sendMessage(chatId, `▶️ Supervisor poller resumed for Phase "${phase.title}".`, {
+        const { resumePhase } = await import('../core/phaseLifecycle.js');
+        await resumePhase(phase.id);
+        await bot.sendMessage(chatId, `▶️ Supervisor resumed for Phase "${phase.title}". It is reconciling Jules/GitHub state and will continue from the current task state.`, {
           reply_markup: TELEGRAM_MAIN_KEYBOARD
         });
       } catch (err) {

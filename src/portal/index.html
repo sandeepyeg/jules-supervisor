@@ -645,6 +645,7 @@
 
     .badge-draft { background: rgba(100, 116, 139, 0.15); color: #94a3b8; border-color: rgba(100, 116, 139, 0.3); }
     .badge-queued { background: rgba(148, 163, 184, 0.1); color: #94a3b8; border-color: rgba(148, 163, 184, 0.2); }
+    .badge-paused { background: rgba(245, 158, 11, 0.12); color: #fbbf24; border-color: rgba(245, 158, 11, 0.3); }
     .badge-running {
       background: rgba(6, 182, 212, 0.12);
       color: #22d3ee;
@@ -1114,6 +1115,15 @@
         <div id="start-phase-area" style="margin-bottom: 1.5rem;">
           <button class="btn" id="start-phase-btn" onclick="startPhase()" style="width: 100%; font-size: 0.95rem; padding: 0.8rem;">
             🚀 Start Phase & Launch Sessions
+          </button>
+        </div>
+
+        <div id="pause-resume-area" style="display: none; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-bottom: 1.5rem;">
+          <button class="btn btn-secondary" id="pause-phase-btn" onclick="pausePhase()" style="font-size: 0.85rem; padding: 0.65rem;">
+            ⏸ Pause Supervisor
+          </button>
+          <button class="btn" id="resume-phase-btn" onclick="resumePhase()" style="font-size: 0.85rem; padding: 0.65rem;">
+            ▶ Resume Supervisor
           </button>
         </div>
 
@@ -2034,6 +2044,7 @@
         } else {
           startArea.style.display = 'none';
         }
+        updatePauseResumeControls(phase.status);
 
         await pollStatus();
         scheduleAdaptivePoll();
@@ -2072,6 +2083,69 @@
         alert('Failed to start phase: ' + err.message);
         btn.disabled = false;
         btn.innerText = '🚀 Start Phase & Launch Sessions';
+      }
+    }
+
+    function updatePauseResumeControls(status) {
+      const area = document.getElementById('pause-resume-area');
+      const pauseBtn = document.getElementById('pause-phase-btn');
+      const resumeBtn = document.getElementById('resume-phase-btn');
+      if (!area || !pauseBtn || !resumeBtn) return;
+
+      const canPause = status === 'active';
+      const canResume = status === 'paused';
+      area.style.display = (canPause || canResume) ? 'grid' : 'none';
+      pauseBtn.style.display = canPause ? 'block' : 'none';
+      resumeBtn.style.display = canResume ? 'block' : 'none';
+    }
+
+    async function pausePhase() {
+      if (!activePhaseId) return;
+      const btn = document.getElementById('pause-phase-btn');
+      btn.disabled = true;
+      btn.innerText = 'Pausing...';
+
+      try {
+        const response = await fetch(`/api/phases/${activePhaseId}/pause`, {
+          method: 'POST',
+          headers: getHeaders()
+        });
+        if (!response.ok) {
+          const err = await response.json();
+          alert('Error pausing supervisor: ' + (err.error || response.statusText));
+        }
+        await loadActivePhase();
+      } catch (err) {
+        console.error(err);
+        alert('Failed to pause supervisor: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerText = '⏸ Pause Supervisor';
+      }
+    }
+
+    async function resumePhase() {
+      if (!activePhaseId) return;
+      const btn = document.getElementById('resume-phase-btn');
+      btn.disabled = true;
+      btn.innerText = 'Resuming...';
+
+      try {
+        const response = await fetch(`/api/phases/${activePhaseId}/resume`, {
+          method: 'POST',
+          headers: getHeaders()
+        });
+        if (!response.ok) {
+          const err = await response.json();
+          alert('Error resuming supervisor: ' + (err.error || response.statusText));
+        }
+        await loadActivePhase();
+      } catch (err) {
+        console.error(err);
+        alert('Failed to resume supervisor: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerText = '▶ Resume Supervisor';
       }
     }
 
@@ -2127,6 +2201,7 @@
 
         const data = await response.json();
         tasksList = data.tasks || [];
+        updatePauseResumeControls(data.phase.status);
         
         const statusBadge = document.getElementById('active-phase-status');
         statusBadge.innerText = data.phase.status;
@@ -2850,6 +2925,7 @@
         selector.innerHTML = '<option value="">-- Load Phase --</option>';
         
         let activePhaseFound = null;
+        let pausedPhaseFound = null;
         phases.forEach(p => {
           const opt = document.createElement('option');
           opt.value = p.id;
@@ -2859,11 +2935,15 @@
           if (p.status === 'active' && !activePhaseFound) {
             activePhaseFound = p.id;
           }
+          if (p.status === 'paused' && !pausedPhaseFound) {
+            pausedPhaseFound = p.id;
+          }
         });
         
-        if (activePhaseFound) {
-          selector.value = activePhaseFound;
-          onPhaseSelect(activePhaseFound);
+        const selectedPhase = activePhaseFound || pausedPhaseFound;
+        if (selectedPhase) {
+          selector.value = selectedPhase;
+          onPhaseSelect(selectedPhase);
         }
       } catch (err) {
         console.error('Error loading phases list:', err);

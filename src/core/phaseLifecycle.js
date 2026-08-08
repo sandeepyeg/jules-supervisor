@@ -122,3 +122,68 @@ export async function startEpic(epicId) {
     activePhaseId: nextPhase.id
   };
 }
+
+export async function pausePhase(phaseId) {
+  const phase = await queries.getPhase(phaseId);
+  if (!phase) {
+    throw lifecycleError('Phase not found', 404);
+  }
+  if (phase.status === 'paused') {
+    poller.stopPoller(phaseId, { manual: true });
+    return { paused: true, alreadyPaused: true, phaseId };
+  }
+  if (phase.status !== 'active') {
+    throw lifecycleError(`Only active phases can be paused. Current status: ${phase.status}`, 400);
+  }
+
+  poller.stopPoller(phaseId, { manual: true });
+  await queries.updatePhaseStatus(phaseId, 'paused');
+  return { paused: true, phaseId };
+}
+
+export async function resumePhase(phaseId) {
+  const phase = await queries.getPhase(phaseId);
+  if (!phase) {
+    throw lifecycleError('Phase not found', 404);
+  }
+  if (phase.status === 'active') {
+    poller.resumePoller(phaseId);
+    return { resumed: true, alreadyActive: true, phaseId, branch: phase.phase_branch };
+  }
+  if (phase.status !== 'paused') {
+    throw lifecycleError(`Only paused phases can be resumed. Current status: ${phase.status}`, 400);
+  }
+
+  await queries.updatePhaseStatus(phaseId, 'active');
+  poller.resumePoller(phaseId);
+  return { resumed: true, phaseId, branch: phase.phase_branch };
+}
+
+export async function pauseEpic(epicId) {
+  const epic = await queries.getEpic(epicId);
+  if (!epic) {
+    throw lifecycleError('Epic not found', 404);
+  }
+  const phases = await queries.getEpicPhases(epicId);
+  const phase = phases.find(p => p.status === 'active') || phases.find(p => p.status === 'paused');
+  if (!phase) {
+    throw lifecycleError('Epic has no active or paused phase', 400);
+  }
+  const result = await pausePhase(phase.id);
+  return { ...result, epicId, activePhaseId: phase.id };
+}
+
+export async function resumeEpic(epicId) {
+  const epic = await queries.getEpic(epicId);
+  if (!epic) {
+    throw lifecycleError('Epic not found', 404);
+  }
+  const phases = await queries.getEpicPhases(epicId);
+  const phase = phases.find(p => p.status === 'paused') || phases.find(p => p.status === 'active');
+  if (!phase) {
+    return startEpic(epicId);
+  }
+  const result = await resumePhase(phase.id);
+  const queuedPhaseIds = await queueEpicPipeline(epicId, phase.id);
+  return { ...result, epicId, activePhaseId: phase.id, queuedPhaseIds };
+}

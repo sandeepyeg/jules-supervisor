@@ -112,15 +112,57 @@ export async function runPollCycle(phaseId) {
 
       if (config.CREATE_FINAL_DRAFT_PR) {
         try {
-          console.log(`Creating final draft PR for branch ${phase.phase_branch} into ${phase.main_branch}...`);
-          await github.createDraftPR(
-            phase.phase_branch,
-            phase.main_branch,
-            `Draft: Merge phase branch ${phase.phase_branch} into ${phase.main_branch}`
-          );
+          // If this phase was branched off a parent feature/epic branch, merge it into its parent branch
+          if (phase.phase_branch && phase.main_branch && phase.phase_branch !== phase.main_branch) {
+            console.log(`Auto-merging completed phase branch ${phase.phase_branch} into parent base branch ${phase.main_branch}...`);
+            await github.mergeBranch(
+              phase.phase_branch,
+              phase.main_branch,
+              `Supervisor: Auto-merge completed phase "${phase.title}" into ${phase.main_branch}`
+            );
+          }
         } catch (prErr) {
-          console.error('Failed to create final draft PR:', prErr);
+          console.error(`Auto-merge for phase branch ${phase.phase_branch} into ${phase.main_branch} encountered notice/error:`, prErr.message);
         }
+      }
+
+      // Check for queued dependent phases ready to start
+      try {
+        const readyPhases = await queries.getQueuedPhasesReadyToStart();
+        for (const readyPhase of readyPhases) {
+          console.log(`Unlocking ready dependent phase #${readyPhase.id} ("${readyPhase.title}")...`);
+          
+          let childBranch = readyPhase.phase_branch;
+          const parentBaseBranch = phase.main_branch || 'develop';
+          if (!childBranch) {
+            childBranch = `feature/phase-${readyPhase.id}-${Date.now()}`;
+          }
+
+          try {
+            await github.createBranch(childBranch, parentBaseBranch);
+          } catch (bErr) {
+            console.warn(`Branch creation for phase #${readyPhase.id} notice:`, bErr.message);
+          }
+
+          await queries.updatePhaseStatus(readyPhase.id, 'active', {
+            phase_branch: childBranch,
+            main_branch: parentBaseBranch,
+            started_at: new Date()
+          });
+
+          await taskManager.startReadyTasks(readyPhase.id, childBranch);
+          startPoller(readyPhase.id);
+
+          try {
+            await telegram.sendNotification(
+              `🚀 *Dependent Phase Unlocked*\nPhase: "${readyPhase.title}" (Phase #${readyPhase.id})\nBase Branch: ${parentBaseBranch}\nPhase Branch: ${childBranch}`
+            );
+          } catch (tgErr) {
+            console.warn('Failed to send Telegram phase unlocked notification:', tgErr.message);
+          }
+        }
+      } catch (chainErr) {
+        console.error('Error resolving dependent phases:', chainErr.message);
       }
 
       stopPoller(phaseId);

@@ -1,0 +1,18 @@
+{
+  "title": "Phase 2: Interactive Features & Animations",
+  "description": "Add dynamic interactive hero tabs, feature card animations, and responsive navigation drawer.",
+  "mainBranch": "feature/epic-public-website-rebuild",
+  "tasks": [
+    {
+      "title": "Build Hero Tab Switcher Component",
+      "description": "Create a smooth animated tab switcher component in src/components/HeroTabs.jsx with keyboard accessibility and active state indicators.",
+      "mode": "ai_assisted"
+    },
+    {
+      "title": "Build Feature Card Parallax Component",
+      "description": "Implement feature showcase cards with CSS glassmorphism and subtle hover motion effects in src/components/FeatureCards.jsx.",
+      "depends_on": [0],
+      "mode": "ai_assisted"
+    }
+  ]
+}

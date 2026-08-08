@@ -1,14 +1,30 @@
-CREATE TABLE IF NOT EXISTS phases (
+CREATE TABLE IF NOT EXISTS epics (
   id INT AUTO_INCREMENT PRIMARY KEY,
   title VARCHAR(255) NOT NULL,
+  master_feature_branch VARCHAR(255) NOT NULL,
+  target_base_branch VARCHAR(255) DEFAULT 'develop',
+  status ENUM('active','complete','paused') DEFAULT 'active',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS phases (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  epic_id INT NULL,
+  depends_on_phase_id INT NULL,
+  title VARCHAR(255) NOT NULL,
   description TEXT,
-  status ENUM('draft','active','complete','failed') DEFAULT 'draft',
+  status ENUM('draft','queued','active','complete','failed') DEFAULT 'draft',
   phase_branch VARCHAR(255),
   main_branch VARCHAR(255) DEFAULT 'main',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   started_at TIMESTAMP NULL,
-  completed_at TIMESTAMP NULL
+  completed_at TIMESTAMP NULL,
+  FOREIGN KEY (epic_id) REFERENCES epics(id) ON DELETE SET NULL,
+  FOREIGN KEY (depends_on_phase_id) REFERENCES phases(id) ON DELETE SET NULL
 );
+
+ALTER TABLE phases ADD COLUMN epic_id INT NULL;
+ALTER TABLE phases ADD COLUMN depends_on_phase_id INT NULL;
 
 CREATE TABLE IF NOT EXISTS tasks (
   id INT AUTO_INCREMENT PRIMARY KEY,

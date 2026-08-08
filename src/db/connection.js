@@ -5,9 +5,10 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export let useMockDb = process.env.NODE_ENV === 'test';
+export let useMockDb = process.env.NODE_ENV === 'test' || process.env.USE_MOCK_DB === 'true';
 
 export const inMemoryDb = {
+  epics: [],
   phases: [],
   tasks: [],
   qa_log: [],
@@ -17,6 +18,7 @@ export const inMemoryDb = {
 let db_id_counter = 1;
 
 export function resetInMemoryDb() {
+  inMemoryDb.epics = [];
   inMemoryDb.phases = [];
   inMemoryDb.tasks = [];
   inMemoryDb.qa_log = [];
@@ -40,7 +42,11 @@ export function mockQuery(sql, params = []) {
       newRecord[col] = params[idx];
     });
 
-    if (table === 'phases') {
+    if (table === 'epics') {
+      newRecord.status = newRecord.status ?? 'active';
+      newRecord.created_at = new Date();
+      inMemoryDb.epics.push(newRecord);
+    } else if (table === 'phases') {
       if (newRecord.status === undefined) newRecord.status = 'draft';
       if (newRecord.main_branch === undefined) newRecord.main_branch = 'main';
       newRecord.phase_branch = newRecord.phase_branch || null;
@@ -82,15 +88,55 @@ export function mockQuery(sql, params = []) {
     return [{ insertId: id }];
   }
 
+  // SELECT * FROM epics WHERE id = ?
+  if (sqlNormalized.startsWith('SELECT * FROM epics WHERE id = ?')) {
+    const res = inMemoryDb.epics.find(e => e.id == params[0]);
+    return [res ? [res] : []];
+  }
+
+  // SELECT COUNT(*) as count FROM tasks WHERE status IN ('running', 'waiting_answer')
+  if (sqlNormalized.includes('count') && sqlNormalized.includes('from tasks')) {
+    if (sqlNormalized.includes("status in ('running', 'waiting_answer')")) {
+      const cnt = inMemoryDb.tasks.filter(t => t.status === 'running' || t.status === 'waiting_answer').length;
+      return [[{ count: cnt }]];
+    }
+    if (sqlNormalized.includes('jules_session_id is not null')) {
+      const cnt = inMemoryDb.tasks.filter(t => Boolean(t.jules_session_id)).length;
+      return [[{ count: cnt }]];
+    }
+    return [[{ count: inMemoryDb.tasks.length }]];
+  }
+
+  // SELECT * FROM epics ORDER BY id DESC
+  if (sqlNormalized.startsWith('SELECT * FROM epics ORDER BY')) {
+    return [[...inMemoryDb.epics].sort((a, b) => b.id - a.id)];
+  }
+
   // SELECT * FROM phases WHERE id = ?
   if (sqlNormalized.startsWith('SELECT * FROM phases WHERE id = ?')) {
     const res = inMemoryDb.phases.find(p => p.id == params[0]);
     return [res ? [res] : []];
   }
 
+  // SELECT * FROM phases WHERE epic_id = ? ORDER BY id DESC LIMIT 1
+  if (sqlNormalized.includes('FROM phases WHERE epic_id = ? ORDER BY id DESC')) {
+    const epicPhases = inMemoryDb.phases.filter(p => p.epic_id == params[0]).sort((a, b) => b.id - a.id);
+    return [epicPhases.length ? [epicPhases[0]] : []];
+  }
+
   // SELECT * FROM phases ORDER BY created_at DESC
   if (sqlNormalized.startsWith('SELECT * FROM phases ORDER BY')) {
     return [[...inMemoryDb.phases].sort((a, b) => b.created_at - a.created_at)];
+  }
+
+  // SELECT * FROM phases WHERE status = 'queued'
+  if (sqlNormalized.startsWith("SELECT * FROM phases WHERE status = 'queued'")) {
+    return [inMemoryDb.phases.filter(p => p.status === 'queued')];
+  }
+
+  // SELECT id FROM phases WHERE status = 'complete'
+  if (sqlNormalized.startsWith("SELECT id FROM phases WHERE status = 'complete'")) {
+    return [inMemoryDb.phases.filter(p => p.status === 'complete').map(p => ({ id: p.id }))];
   }
 
   // SELECT id FROM phases WHERE status = 'active'

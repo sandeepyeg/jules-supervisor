@@ -1,6 +1,73 @@
 import { pool } from './connection.js';
 
 /**
+ * Creates a new Epic container.
+ */
+export async function createEpic({ title, master_feature_branch, target_base_branch = 'develop' }) {
+  const [result] = await pool.query(
+    'INSERT INTO epics (title, master_feature_branch, target_base_branch, status) VALUES (?, ?, ?, ?)',
+    [title, master_feature_branch, target_base_branch, 'active']
+  );
+  return result.insertId;
+}
+
+/**
+ * Retrieves an epic by ID.
+ */
+export async function getEpic(epicId) {
+  const [rows] = await pool.query('SELECT * FROM phases WHERE id = ?', [epicId]);
+  // Also check epics table
+  const [epicRows] = await pool.query('SELECT * FROM epics WHERE id = ?', [epicId]);
+  return epicRows[0] || rows[0] || null;
+}
+
+/**
+ * Retrieves all epics.
+ */
+export async function getEpics() {
+  const [rows] = await pool.query('SELECT * FROM epics ORDER BY id DESC');
+  return rows;
+}
+
+/**
+ * Retrieves all phases for a given epic.
+ */
+export async function getEpicPhases(epicId) {
+  const [rows] = await pool.query('SELECT * FROM phases WHERE epic_id = ? ORDER BY id ASC', [epicId]);
+  return rows;
+}
+
+/**
+ * Retrieves all phases.
+ */
+export async function getPhases() {
+  const [rows] = await pool.query('SELECT * FROM phases ORDER BY id ASC');
+  return rows;
+}
+
+/**
+ * Creates a new phase record with epic and dependency support.
+ */
+export async function createPhase({ title, description = '', status = 'active', phase_branch = null, main_branch = 'develop', epic_id = null, depends_on_phase_id = null }) {
+  const [result] = await pool.query(
+    'INSERT INTO phases (title, description, status, phase_branch, main_branch, epic_id, depends_on_phase_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [title, description, status, phase_branch, main_branch, epic_id, depends_on_phase_id]
+  );
+  return result.insertId;
+}
+
+/**
+ * Retrieves queued phases ready to start (parent phase is complete or depends_on_phase_id is null).
+ */
+export async function getQueuedPhasesReadyToStart() {
+  const [queuedPhases] = await pool.query("SELECT * FROM phases WHERE status = 'queued'");
+  const [completedPhases] = await pool.query("SELECT id FROM phases WHERE status = 'complete'");
+  const completedIds = new Set(completedPhases.map(p => p.id));
+
+  return queuedPhases.filter(p => !p.depends_on_phase_id || completedIds.has(p.depends_on_phase_id));
+}
+
+/**
  * Retrieves a phase record by ID.
  */
 export async function getPhase(phaseId) {
@@ -111,6 +178,22 @@ export async function getActiveTasks(phaseId) {
     [phaseId]
   );
   return rows;
+}
+
+/**
+ * Gets count of all tasks currently running in Jules across all phases.
+ */
+export async function getGlobalRunningTaskCount() {
+  const [rows] = await pool.query("SELECT COUNT(*) as count FROM tasks WHERE status IN ('running', 'waiting_answer')");
+  return rows[0] ? parseInt(rows[0].count, 10) : 0;
+}
+
+/**
+ * Gets count of all tasks launched in the past 24 hours.
+ */
+export async function getDailyLaunchedTaskCount() {
+  const [rows] = await pool.query("SELECT COUNT(*) as count FROM tasks WHERE jules_session_id IS NOT NULL");
+  return rows[0] ? parseInt(rows[0].count, 10) : 0;
 }
 
 /**

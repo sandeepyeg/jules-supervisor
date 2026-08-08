@@ -6,7 +6,7 @@ import * as taskManager from '../core/taskManager.js';
 import * as poller from '../core/poller.js';
 import { portalAuth } from './auth.js';
 import { MAX_AUTO_REVISION_ATTEMPTS } from '../core/config.js';
-import { createPhaseFromPayload } from '../core/phaseImport.js';
+import { createPhaseFromPayload, createEpicFromPayload, createPhaseInEpicFromPayload } from '../core/phaseImport.js';
 import { startPhase } from '../core/phaseLifecycle.js';
 
 const router = express.Router();
@@ -50,6 +50,72 @@ router.get('/github/branches', portalAuth, async (req, res) => {
     console.error('Error listing branches:', error);
     // If GitHub token is mock/placeholder, fallback to standard list
     res.json(['main', 'master', 'dev', 'feature/phase-1']);
+  }
+});
+
+/**
+ * POST /api/phases/import
+ * Imports a full multi-phase JSON roadmap or single phase JSON payload.
+ */
+router.post('/import', portalAuth, async (req, res) => {
+  try {
+    if (Array.isArray(req.body?.phases)) {
+      const result = await createEpicFromPayload(req.body);
+      return res.status(201).json(result);
+    }
+    const { phaseId } = await createPhaseFromPayload(req.body);
+    res.status(201).json({ phaseId });
+  } catch (error) {
+    console.error('Error importing phase payload:', error);
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/phases/epics
+ * Returns all epics.
+ */
+router.get('/epics', portalAuth, async (req, res) => {
+  try {
+    const epics = await queries.getEpics();
+    res.json(epics);
+  } catch (error) {
+    console.error('Error fetching epics:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/phases/epics
+ * Creates a new Epic container.
+ */
+router.post('/epics', portalAuth, async (req, res) => {
+  try {
+    const { title, masterFeatureBranch, targetBaseBranch } = req.body;
+    const epicId = await queries.createEpic({
+      title: title || 'New Epic',
+      master_feature_branch: masterFeatureBranch || `feature/epic-${Date.now()}`,
+      target_base_branch: targetBaseBranch || 'develop'
+    });
+    res.status(201).json({ epicId });
+  } catch (error) {
+    console.error('Error creating epic:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/phases/epics/:epicId/phases/import
+ * Imports a single phase JSON into an existing Epic container.
+ */
+router.post('/epics/:epicId/phases/import', portalAuth, async (req, res) => {
+  const epicId = parseInt(req.params.epicId, 10);
+  try {
+    const result = await createPhaseInEpicFromPayload(epicId, req.body);
+    res.status(201).json(result);
+  } catch (error) {
+    console.error(`Error importing phase into epic #${epicId}:`, error);
+    res.status(error.statusCode || 500).json({ error: error.message });
   }
 });
 

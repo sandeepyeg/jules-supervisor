@@ -17,11 +17,20 @@ import {
   PRIMARY_SUPERVISOR_MODEL
 } from './config.js';
 
-const PROJECT_CONVENTIONS = `Project conventions to check against, in addition to the task requirements:
-- ESM only: relative imports must include the .js extension.
-- Database query blocks must release connections via try/finally or try/catch.
-- Never log secrets, tokens, or API keys.
-- Changes to auth, security, schema/migrations, config/secrets, or automation-sensitive code are high risk and need extra scrutiny.`;
+const PROJECT_CONVENTIONS = `PR Reviewer Guidelines & Smart Constraints:
+1. Pragmatic Review: Focus strictly on code correctness, syntax errors, broken imports, missing core logic, or security flaws.
+2. Unit Test Files vs Test Execution:
+   - Creating or updating test files (.test.js, .spec.ts) for backend logic is fine, BUT Jules is NOT required to run tests or provide runtime execution logs/proof.
+   - As long as code and test files are clean and have valid syntax, APPROVE the PR without demanding runtime execution logs.
+3. DO NOT Ask For Impossible or Out-of-Scope Tasks:
+   - NEVER block a PR asking for manual visual smoke tests, E2E browser verification, or human checks. (Put visual/manual suggestions into "advisoryNotes", NEVER "blockingIssues").
+   - NEVER block a PR asking to create complex test harnesses or rewrite unchanged files.
+4. DO NOT Miss Critical Blockers:
+   - ALWAYS block on syntax errors, broken/missing ESM imports, undefined variables, or completely unfulfilled task requirements.
+   - ALWAYS block on security vulnerabilities (hardcoded secrets, broken auth, SQL injection).
+5. Advisory vs Blocking Distinction:
+   - "blockingIssues": Concrete code bugs or unfulfilled task requirements ONLY.
+   - "advisoryNotes": Optional style hints, manual UI check recommendations, or non-blocking suggestions.`;
 
 /**
  * Detects high-risk files or patterns in changed files and diff content.
@@ -431,26 +440,54 @@ export async function reviewAndMerge(task) {
       blockingIssues = blockingIssues.concat('PR status checks or check runs are failing.');
     }
 
-    // 6. Validate test evidence for code behavior changes
-    const hasSourceChanges = filenames.some(f => f.endsWith('.js') || f.endsWith('.py') || f.includes('/src/'));
-    const hasTestFileChanges = filenames.some(f => {
+    // 6. Validate test evidence for backend logic changes
+    // Pure UI/CSS/HTML/Docs/Config changes or code cleanup/deletion tasks do NOT require unit test files.
+    const isUiOrAssets = filenames.length > 0 && filenames.every(f => {
       const lower = f.toLowerCase();
-      return lower.includes('test') || lower.includes('spec') || lower.includes('__tests__');
+      return lower.endsWith('.css') || lower.endsWith('.scss') || lower.endsWith('.html') || 
+             lower.endsWith('.svg') || lower.endsWith('.png') || lower.endsWith('.jpg') || 
+             lower.endsWith('.json') || lower.endsWith('.md') || lower.endsWith('.yaml') || lower.endsWith('.yml');
     });
 
-    const testEvidenceText = testEvidences.join('; ').toLowerCase();
-    const hasTestEvidenceText = testEvidenceText.includes('test') &&
-                                !testEvidenceText.includes('no test') &&
-                                !testEvidenceText.includes('missing') &&
-                                !testEvidenceText.includes('unknown');
+    const taskTitleLower = (task.title || '').toLowerCase();
+    const isCleanupOrRefactor = taskTitleLower.includes('cleanup') || 
+                               taskTitleLower.includes('remove') || 
+                               taskTitleLower.includes('delete') || 
+                               taskTitleLower.includes('refactor') || 
+                               taskTitleLower.includes('style') || 
+                               taskTitleLower.includes('css') || 
+                               taskTitleLower.includes('html') || 
+                               taskTitleLower.includes('ui');
 
-    if (hasSourceChanges) {
-      const verifiedByTestFile = hasTestFileChanges;
-      const verifiedByChecks = hasTestEvidenceText && checksStatus === 'passing';
+    const prDescriptionLower = ((pr.body || '') + ' ' + testEvidences.join(' ')).toLowerCase();
+    const julesVerified = prDescriptionLower.includes('verified') || 
+                          prDescriptionLower.includes('tests were run') || 
+                          prDescriptionLower.includes('no console errors') ||
+                          prDescriptionLower.includes('no failing tests');
 
-      if (!verifiedByTestFile && !verifiedByChecks) {
-        approved = false;
-        blockingIssues = blockingIssues.concat('Missing verifiable test evidence. You must either include test file modifications, or ensure Gemini test evidence is provided AND GitHub checks are passing.');
+    const requiresTestEvidence = !isUiOrAssets && !isCleanupOrRefactor && !julesVerified;
+
+    if (requiresTestEvidence) {
+      const hasSourceChanges = filenames.some(f => f.endsWith('.js') || f.endsWith('.ts') || f.endsWith('.py') || f.endsWith('.go') || f.endsWith('.rs'));
+      const hasTestFileChanges = filenames.some(f => {
+        const lower = f.toLowerCase();
+        return lower.includes('test') || lower.includes('spec') || lower.includes('__tests__');
+      });
+
+      const testEvidenceText = testEvidences.join('; ').toLowerCase();
+      const hasTestEvidenceText = testEvidenceText.includes('test') &&
+                                  !testEvidenceText.includes('no test') &&
+                                  !testEvidenceText.includes('missing') &&
+                                  !testEvidenceText.includes('unknown');
+
+      if (hasSourceChanges) {
+        const verifiedByTestFile = hasTestFileChanges;
+        const verifiedByChecks = hasTestEvidenceText && checksStatus === 'passing';
+
+        if (!verifiedByTestFile && !verifiedByChecks) {
+          approved = false;
+          blockingIssues = blockingIssues.concat('Missing verifiable test evidence for backend logic changes.');
+        }
       }
     }
 

@@ -1026,6 +1026,10 @@
         <span>Q&A Console</span>
         <span id="nav-alert-badge" style="display: none; position: absolute; top: 4px; right: 8px; width: 6px; height: 6px; background: var(--danger); border-radius: 50%; box-shadow: 0 0 6px var(--danger);"></span>
       </button>
+      <button class="nav-btn" id="nav-btn-epic" onclick="switchScreen('epic')">
+        <svg style="width:14px;height:14px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+        <span>Epic Roadmap</span>
+      </button>
     </nav>
 
     <!-- SCREEN 1: Planning Mode -->
@@ -1185,7 +1189,42 @@
       </div>
     </div>
 
-  </div>
+    <!-- SCREEN 4: Epic Roadmap -->
+    <div id="screen-epic" class="console-screen" style="display: none;">
+      <div class="glass-card" style="margin-bottom: 1rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem;">
+          <div>
+            <h2 id="epic-view-title" style="margin: 0; font-size: 1.15rem; color: var(--text-main); display: flex; align-items: center; gap: 0.5rem;">
+              <span>🗺️ Epic Roadmap Overview</span>
+            </h2>
+            <div id="epic-view-subtitle" style="font-size: 0.78rem; color: var(--text-muted); margin-top: 0.2rem;">
+              All phases and tasks across your multi-phase roadmap on one single screen
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <label style="font-size: 0.75rem; color: var(--text-muted);">Active Epic:</label>
+            <select id="epic-selector-dropdown" class="phase-selector-select" style="max-width: 280px; padding: 0.4rem 0.6rem; font-size: 0.8rem; background: rgba(0,0,0,0.4); color: var(--text-main); border: 1px solid rgba(255,255,255,0.15); border-radius: 6px;" onchange="loadEpicRoadmapView(this.value)">
+              <option value="">Loading Epics...</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="epic-overall-progress-container" style="margin-top: 1rem; display: none; background: rgba(0,0,0,0.25); padding: 0.65rem 0.85rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.06);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+            <span style="font-size: 0.78rem; color: var(--text-main); font-weight: 600;" id="epic-meta-info">Master Feature Branch: feature/epic-xxx</span>
+            <span style="font-size: 0.78rem; color: #34d399; font-weight: 700;" id="epic-progress-percent">0% Completed</span>
+          </div>
+          <div style="width: 100%; height: 8px; background: rgba(255,255,255,0.08); border-radius: 999px; overflow: hidden;">
+            <div id="epic-progress-bar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #34d399, #6366f1); transition: width 0.4s ease;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Roadmap Phases Container -->
+      <div id="epic-roadmap-cards-container" style="display: flex; flex-direction: column; gap: 0.85rem;">
+        <!-- Dynamically rendered phase cards with nested task lists -->
+      </div>
+    </div>
 
   <!-- Task Detail Modal -->
   <div id="task-detail-modal" class="modal-overlay" style="display: none;" onclick="closeTaskDetailModal(event)">
@@ -1214,9 +1253,9 @@
       <!-- Meta chips -->
       <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem;">
         <div id="tdm-mode" style="font-size: 0.78rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 0.25rem 0.6rem;"></div>
-        <div id="tdm-session-wrap" style="font-size: 0.78rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 0.25rem 0.6rem; display: none;">
-          🆔 Session: <code id="tdm-session" style="font-size: 0.75rem;"></code>
-        </div>
+        <a id="tdm-session-link" href="#" target="_blank" style="font-size: 0.78rem; background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.35); border-radius: 6px; padding: 0.25rem 0.6rem; color: #34d399; text-decoration: none; display: none;" title="Open session directly in Jules UI">
+          🤖 Jules Session (<span id="tdm-session-id-text"></span>) ↗
+        </a>
         <a id="tdm-pr-link" href="#" target="_blank" style="font-size: 0.78rem; background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.3); border-radius: 6px; padding: 0.25rem 0.6rem; color: #818cf8; text-decoration: none; display: none;">🔗 View PR</a>
         <div id="tdm-revision-chip" style="font-size: 0.78rem; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; padding: 0.25rem 0.6rem; display: none;"></div>
       </div>
@@ -1283,19 +1322,25 @@
 
   <!-- Bulk JSON Import Modal -->
   <div id="json-import-modal" class="modal-overlay" style="display: none;">
-    <div class="modal-card glass-card">
-      <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-        <h3 style="margin: 0; font-size: 1.1rem; color: var(--text-main);">Import Phase from JSON</h3>
+    <div class="modal-card glass-card" style="max-width: 680px; width: 92%;">
+      <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+        <h3 id="json-import-modal-title" style="margin: 0; font-size: 1.1rem; color: var(--text-main);">Import Specifications</h3>
         <button type="button" class="btn btn-secondary" onclick="closeJsonImportModal()" style="padding: 0.15rem 0.45rem; font-size: 0.75rem; border-color: rgba(255,255,255,0.1); margin: 0;">✕</button>
       </div>
-      <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0 0 0.75rem;">
-        Paste one JSON object below. <code>title</code> and <code>description</code> fill the fields above (if provided);
-        <code>tasks[].depends_on</code> uses 0-based indices into the <code>tasks</code> array. This form still saves a
-        draft for you to review — but the same format sent to the Telegram bot as <code>/import &lt;json&gt;</code> starts
-        running immediately, no review step.
-      </p>
-      <div class="form-group">
-        <textarea id="json-import-textarea" rows="12" style="font-family: monospace; font-size: 0.78rem;" placeholder='{
+
+      <!-- Mode Tabs -->
+      <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem; background: rgba(255,255,255,0.05); padding: 0.25rem; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);">
+        <button type="button" id="tab-btn-single" class="btn" style="flex: 1; padding: 0.35rem; font-size: 0.78rem; background: var(--primary);" onclick="setJsonImportTab('single')">Single Phase JSON</button>
+        <button type="button" id="tab-btn-multi" class="btn btn-secondary" style="flex: 1; padding: 0.35rem; font-size: 0.78rem; background: transparent;" onclick="setJsonImportTab('multi')">➕ Build Multi-Phase Epic (Incremental)</button>
+      </div>
+
+      <!-- SINGLE PHASE CONTAINER -->
+      <div id="import-single-container">
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0 0 0.75rem;">
+          Paste a single phase JSON payload below to fill the current setup form.
+        </p>
+        <div class="form-group">
+          <textarea id="json-import-textarea" rows="11" style="font-family: monospace; font-size: 0.78rem;" placeholder='{
   "title": "Phase 2 - Billing",
   "description": "Add Stripe subscriptions.",
   "mainBranch": "main",
@@ -1304,10 +1349,70 @@
     { "title": "Add webhook handler", "description": "...", "depends_on": [0] }
   ]
 }'></textarea>
+        </div>
+        <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+          <button type="button" class="btn btn-secondary" style="flex: 1; padding: 0.65rem;" onclick="copySampleJson()" title="Copy sample JSON format">📄 Copy Sample</button>
+          <button type="button" class="btn" style="flex: 1; padding: 0.65rem;" onclick="importJsonIntoForm()">Import into Form</button>
+        </div>
       </div>
-      <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
-        <button type="button" class="btn btn-secondary" style="flex: 1; padding: 0.65rem;" onclick="copySampleJson()" title="Copy the sample format below — paste it into an LLM to generate real tasks in this shape, then paste the result back here">📄 Copy Sample</button>
-        <button type="button" class="btn" style="flex: 1; padding: 0.65rem;" onclick="importJsonIntoForm()">Import</button>
+
+      <!-- MULTI-PHASE INCREMENTAL EPIC CONTAINER -->
+      <div id="import-multi-container" style="display: none;">
+        <!-- STEP 1: Epic Creation (if no active epic) -->
+        <div id="epic-step-create">
+          <div id="existing-epics-banner" style="display: none; margin-bottom: 0.75rem; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.2); padding: 0.45rem 0.75rem; border-radius: 6px;">
+            <div style="font-size: 0.75rem; color: #818cf8; font-weight: 600; margin-bottom: 0.2rem;">📁 Or Append to Existing Epic Roadmap:</div>
+            <select id="epic-existing-epic-select" style="font-size: 0.75rem; padding: 0.25rem 0.5rem; background: rgba(0,0,0,0.4); color: var(--text-main); border: 1px solid rgba(255,255,255,0.15); border-radius: 4px; width: 100%;" onchange="selectExistingEpic(this.value)">
+              <option value="">-- Select Existing Epic Container --</option>
+            </select>
+          </div>
+
+          <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0 0 0.75rem;">
+            Enter an Epic Title and select your Base Branch. The system will automatically create the master feature branch for you!
+          </p>
+          <div class="form-group" style="margin-bottom: 0.6rem;">
+            <label style="font-size: 0.75rem;">Epic Title / Goal</label>
+            <input type="text" id="epic-title-input" placeholder="e.g. Public Website Rebuild 2026" style="padding: 0.5rem; font-size: 0.82rem;">
+          </div>
+          <div class="form-group" style="margin-bottom: 0.75rem;">
+            <label style="font-size: 0.75rem;">Base Branch (Branch to merge into when all phases finish)</label>
+            <select id="epic-base-branch-select" style="padding: 0.5rem; font-size: 0.82rem; border-radius: 6px; background: rgba(0,0,0,0.3); color: var(--text-main); border: 1px solid rgba(255,255,255,0.1); width: 100%;"></select>
+          </div>
+          <button type="button" class="btn" style="width: 100%; padding: 0.65rem; font-size: 0.85rem; margin-top: 0.25rem;" onclick="createEpicContainer()">🎯 Create Epic Container</button>
+        </div>
+
+        <!-- STEP 2: Incremental Phase Append Form -->
+        <div id="epic-step-append" style="display: none;">
+          <div style="background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.2); padding: 0.6rem 0.8rem; border-radius: 8px; margin-bottom: 0.75rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong id="epic-active-title" style="font-size: 0.85rem; color: #818cf8;">Epic Title</strong>
+                <div style="font-size: 0.72rem; color: var(--text-muted);" id="epic-active-branch">Branch: feature/epic-xxx</div>
+              </div>
+              <button type="button" class="btn btn-secondary" style="padding: 0.15rem 0.45rem; font-size: 0.68rem;" onclick="resetEpicContainerBuilder()">Start New Epic</button>
+            </div>
+            <div id="epic-added-phases-list" style="margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.25rem;">
+              <!-- Badges of added phases -->
+            </div>
+          </div>
+
+          <label style="font-size: 0.78rem; font-weight: 600; display: block; margin-bottom: 0.25rem;">Paste Next Phase JSON to Append:</label>
+          <textarea id="epic-phase-json-textarea" rows="7" style="font-family: monospace; font-size: 0.75rem;" placeholder='{
+  "title": "Phase 2 - Stripe Billing",
+  "description": "Add billing integration.",
+  "tasks": [
+    { "title": "Add SDK", "description": "..." },
+    { "title": "Add Webhooks", "description": "...", "depends_on": [0] }
+  ]
+}'></textarea>
+          
+          <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+            <button type="button" class="btn btn-secondary" style="flex: 1; padding: 0.55rem; font-size: 0.78rem;" onclick="copySampleJson()">📄 Copy Sample</button>
+            <button type="button" class="btn" style="flex: 1.5; padding: 0.55rem; font-size: 0.78rem; background: linear-gradient(135deg, #10b981, #059669);" onclick="appendPhaseToEpic()">➕ Append Phase to Epic</button>
+          </div>
+          
+          <button type="button" class="btn btn-secondary" style="width: 100%; padding: 0.5rem; font-size: 0.78rem; margin-top: 0.5rem; border-color: rgba(255,255,255,0.15);" onclick="finishEpicRoadmap()">🚀 Done Adding Phases (Open Dashboard)</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1329,26 +1434,34 @@
       return headers;
     };
 
+    function getJulesSessionUrl(sessionId) {
+      if (!sessionId) return '#';
+      const cleanId = String(sessionId).replace(/^sessions\//, '');
+      return `https://jules.google.com/u/1/session/${cleanId}`;
+    }
+
     function switchScreen(screenId) {
       currentScreen = screenId;
       
       // Hide all screens
-      document.getElementById('screen-setup').style.display = 'none';
-      document.getElementById('screen-status').style.display = 'none';
-      document.getElementById('screen-logs').style.display = 'none';
+      ['setup', 'status', 'logs', 'epic'].forEach(s => {
+        const el = document.getElementById(`screen-${s}`);
+        if (el) el.style.display = 'none';
+        const btn = document.getElementById(`nav-btn-${s}`);
+        if (btn) btn.classList.remove('active');
+      });
       
       // Show selected screen
-      document.getElementById(`screen-${screenId}`).style.display = 'block';
+      const activeEl = document.getElementById(`screen-${screenId}`);
+      if (activeEl) activeEl.style.display = 'block';
       
-      // Update nav buttons
-      document.getElementById('nav-btn-setup').classList.remove('active');
-      document.getElementById('nav-btn-status').classList.remove('active');
-      document.getElementById('nav-btn-logs').classList.remove('active');
-      
-      document.getElementById(`nav-btn-${screenId}`).classList.add('active');
+      const activeBtn = document.getElementById(`nav-btn-${screenId}`);
+      if (activeBtn) activeBtn.classList.add('active');
 
       if (screenId === 'setup') {
         loadBranchesDropdown();
+      } else if (screenId === 'epic') {
+        loadEpicRoadmapView();
       }
     }
 
@@ -2106,7 +2219,9 @@
             statusDetailText = '<div style="font-size: 0.7rem; color: var(--warning); margin-top: 0.15rem; font-weight: 500;">🔔 Escalated to Telegram</div>';
           } else if (task.status === 'running') {
             pulseDot = '<span class="pulse-dot pulse-dot-running"></span>';
-            statusDetailText = `<div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem; font-family: monospace;">Session: ${task.jules_session_id || 'starting...'}</div>`;
+            const sessUrl = getJulesSessionUrl(task.jules_session_id);
+            const sessLabel = String(task.jules_session_id || 'starting...').replace(/^sessions\//, '');
+            statusDetailText = `<div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem; font-family: monospace;">Session: ${task.jules_session_id ? `<a href="${sessUrl}" target="_blank" style="color: #34d399; text-decoration: underline;" onclick="event.stopPropagation();">🤖 ${sessLabel} ↗</a>` : 'starting...'}</div>`;
           }
 
           // Auto-review revision round and "needs manual attention" state — distinct
@@ -2352,8 +2467,11 @@
 
     async function loadBranchesDropdown() {
       const dropdown = document.getElementById('main-branch');
-      if (!dropdown) return;
-      dropdown.innerHTML = '<option value="main">Loading branches...</option>';
+      const epicBaseDropdown = document.getElementById('epic-base-branch-select');
+      const epicExistDropdown = document.getElementById('epic-existing-branch-select');
+
+      if (dropdown) dropdown.innerHTML = '<option value="main">Loading branches...</option>';
+      if (epicBaseDropdown) epicBaseDropdown.innerHTML = '<option value="develop">Loading branches...</option>';
       try {
         const response = await fetch('/api/phases/github/branches', {
           headers: getHeaders()
@@ -2361,36 +2479,49 @@
         if (!response.ok) throw new Error('Fetch failed');
         let branches = await response.json();
 
-        // Sort: main first, master second, rest alphabetically
-        const priority = ['main', 'master'];
+        // Sort: develop first, main second, master third, rest alphabetically
+        const priority = ['develop', 'main', 'master'];
         branches = [
           ...priority.filter(b => branches.includes(b)),
           ...branches.filter(b => !priority.includes(b)).sort()
         ];
 
-        dropdown.innerHTML = '';
-        branches.forEach(branch => {
-          const option = document.createElement('option');
-          option.value = branch;
-          option.innerText = branch;
-          dropdown.appendChild(option);
-        });
+        if (dropdown) {
+          dropdown.innerHTML = '';
+          branches.forEach(branch => {
+            const option = document.createElement('option');
+            option.value = branch;
+            option.innerText = branch;
+            dropdown.appendChild(option);
+          });
+          dropdown.value = branches.includes('main') ? 'main' : (branches[0] || 'main');
+        }
 
-        // Always default to main, then master
-        if (branches.includes('main')) {
-          dropdown.value = 'main';
-        } else if (branches.includes('master')) {
-          dropdown.value = 'master';
-        } else if (branches.length > 0) {
-          dropdown.value = branches[0];
+        if (epicBaseDropdown) {
+          epicBaseDropdown.innerHTML = '';
+          branches.forEach(branch => {
+            const option = document.createElement('option');
+            option.value = branch;
+            option.innerText = branch;
+            epicBaseDropdown.appendChild(option);
+          });
+          epicBaseDropdown.value = branches.includes('develop') ? 'develop' : (branches.includes('main') ? 'main' : (branches[0] || 'develop'));
+        }
+
+        if (epicExistDropdown) {
+          epicExistDropdown.innerHTML = '<option value="">-- Select Existing Branch --</option>';
+          branches.forEach(branch => {
+            const option = document.createElement('option');
+            option.value = branch;
+            option.innerText = branch;
+            epicExistDropdown.appendChild(option);
+          });
         }
       } catch (err) {
         console.error('Error loading branches:', err);
-        dropdown.innerHTML = `
-          <option value="main" selected>main</option>
-          <option value="master">master</option>
-          <option value="dev">dev</option>
-        `;
+        const fallback = ['develop', 'main', 'master'];
+        if (dropdown) dropdown.innerHTML = fallback.map(b => `<option value="${b}">${b}</option>`).join('');
+        if (epicBaseDropdown) epicBaseDropdown.innerHTML = fallback.map(b => `<option value="${b}">${b}</option>`).join('');
       }
     }
 
@@ -2447,12 +2578,14 @@
 
       document.getElementById('tdm-mode').textContent = task.mode === 'ai_assisted' ? '🤖 AI-Assisted' : '👤 Manual';
 
-      const sessionWrap = document.getElementById('tdm-session-wrap');
+      const sessionLink = document.getElementById('tdm-session-link');
       if (task.jules_session_id) {
-        sessionWrap.style.display = 'block';
-        document.getElementById('tdm-session').textContent = task.jules_session_id;
+        sessionLink.style.display = 'inline-block';
+        sessionLink.href = getJulesSessionUrl(task.jules_session_id);
+        const cleanId = String(task.jules_session_id).replace(/^sessions\//, '');
+        document.getElementById('tdm-session-id-text').textContent = cleanId.length > 18 ? cleanId.substring(0, 16) + '...' : cleanId;
       } else {
-        sessionWrap.style.display = 'none';
+        sessionLink.style.display = 'none';
       }
 
       const prLink = document.getElementById('tdm-pr-link');
@@ -2761,6 +2894,11 @@
     }
 
     async function checkAuthAndInit() {
+      const stored = localStorage.getItem('jules_supervisor_secret');
+      if (stored) {
+        portalSecret = stored.trim();
+      }
+      
       try {
         const response = await fetch('/api/phases', {
           headers: getHeaders()
@@ -2791,13 +2929,17 @@
     function showLockScreen() {
       document.getElementById('lock-screen').style.display = 'flex';
       document.getElementById('dashboard-wrapper').style.display = 'none';
+      const storedKey = localStorage.getItem('jules_supervisor_secret') || portalSecret || '';
+      if (storedKey) {
+        document.getElementById('portal-secret-key').value = storedKey.trim();
+      }
       document.getElementById('portal-secret-key').focus();
     }
 
     async function attemptUnlock(event) {
       if (event) event.preventDefault();
       
-      const enteredKey = document.getElementById('portal-secret-key').value;
+      const enteredKey = (document.getElementById('portal-secret-key').value || '').trim();
       const errorMsg = document.getElementById('lock-error-msg');
       errorMsg.style.display = 'none';
       
@@ -2845,6 +2987,465 @@
           indicator.className = 'system-status-indicator offline';
           indicator.title = 'API Connection: Offline';
         }
+      }
+    }
+
+    let currentJsonImportTab = 'single';
+    let activeEpicId = null;
+    let activeEpicTitle = '';
+    let activeEpicBranch = '';
+    let addedEpicPhases = [];
+
+    function openJsonImportModal() {
+      const modal = document.getElementById('json-import-modal');
+      if (modal) modal.style.display = 'flex';
+      setJsonImportTab('single');
+    }
+
+    function closeJsonImportModal() {
+      const modal = document.getElementById('json-import-modal');
+      if (modal) modal.style.display = 'none';
+    }
+
+    function setJsonImportTab(tab) {
+      currentJsonImportTab = tab;
+      const tabSingle = document.getElementById('tab-btn-single');
+      const tabMulti = document.getElementById('tab-btn-multi');
+      const singleContainer = document.getElementById('import-single-container');
+      const multiContainer = document.getElementById('import-multi-container');
+
+      if (tab === 'multi') {
+        if (tabSingle) { tabSingle.style.background = 'transparent'; tabSingle.className = 'btn btn-secondary'; }
+        if (tabMulti) { tabMulti.style.background = 'var(--primary)'; tabMulti.className = 'btn'; }
+        if (singleContainer) singleContainer.style.display = 'none';
+        if (multiContainer) multiContainer.style.display = 'block';
+        fetchExistingEpics();
+        updateEpicBuilderUI();
+      } else {
+        if (tabSingle) { tabSingle.style.background = 'var(--primary)'; tabSingle.className = 'btn'; }
+        if (tabMulti) { tabMulti.style.background = 'transparent'; tabMulti.className = 'btn btn-secondary'; }
+        if (singleContainer) singleContainer.style.display = 'block';
+        if (multiContainer) multiContainer.style.display = 'none';
+      }
+    }
+
+    let allEpicsCache = [];
+
+    async function fetchExistingEpics() {
+      try {
+        const response = await fetch('/api/phases/epics', { headers: getHeaders() });
+        if (!response.ok) return;
+        allEpicsCache = await response.json();
+
+        const banner = document.getElementById('existing-epics-banner');
+        const select = document.getElementById('epic-existing-epic-select');
+        
+        if (!select || !banner) return;
+
+        if (allEpicsCache.length > 0) {
+          banner.style.display = 'block';
+          select.innerHTML = '<option value="">-- Select Existing Epic Container --</option>' +
+            allEpicsCache.map(e => `<option value="${e.id}">Epic #${e.id}: ${escapeHtml(e.title)} (${e.master_feature_branch})</option>`).join('');
+        } else {
+          banner.style.display = 'none';
+        }
+      } catch (err) {
+        console.error('Error fetching epics:', err);
+      }
+    }
+
+    async function selectExistingEpic(epicId) {
+      if (!epicId) return;
+      const epic = allEpicsCache.find(e => e.id === parseInt(epicId, 10));
+      if (!epic) return;
+
+      activeEpicId = epic.id;
+      activeEpicTitle = epic.title;
+      activeEpicBranch = epic.master_feature_branch;
+
+      try {
+        const response = await fetch('/api/phases', { headers: getHeaders() });
+        if (response.ok) {
+          const allPhases = await response.json();
+          addedEpicPhases = allPhases
+            .filter(p => p.epic_id === activeEpicId)
+            .map(p => ({
+              phaseId: p.id,
+              title: p.title,
+              taskCount: 0,
+              dependsOn: p.depends_on_phase_id
+            }));
+        }
+      } catch (err) {
+        console.error(err);
+      }
+
+      updateEpicBuilderUI();
+    }
+
+    function autoSuggestEpicBranch(title) {
+      const input = document.getElementById('epic-master-branch-input');
+      if (!input) return;
+      if (!title || !title.trim()) {
+        input.value = '';
+        return;
+      }
+      const slug = title.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      input.value = `feature/epic-${slug}`;
+    }
+
+    async function createEpicContainer() {
+      const title = (document.getElementById('epic-title-input').value || '').trim();
+      const baseBranch = (document.getElementById('epic-base-branch-select')?.value || 'develop').trim();
+
+      if (!title) {
+        alert('Please enter an Epic Title / Goal.');
+        return;
+      }
+
+      // Auto-generate clean master feature branch name from title
+      const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      const masterBranch = `feature/epic-${slug || Date.now()}`;
+
+      try {
+        const response = await fetch('/api/phases/epics', {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({
+            title,
+            masterFeatureBranch: masterBranch,
+            targetBaseBranch: baseBranch
+          })
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error || 'Failed to create Epic container');
+        }
+
+        const data = await response.json();
+        activeEpicId = data.epicId;
+        activeEpicTitle = title;
+        activeEpicBranch = masterBranch;
+        addedEpicPhases = [];
+
+        updateEpicBuilderUI();
+      } catch (err) {
+        alert('Error creating Epic container: ' + err.message);
+      }
+    }
+
+    async function appendPhaseToEpic() {
+      if (!activeEpicId) {
+        alert('No active Epic container. Create an Epic container first.');
+        return;
+      }
+
+      const raw = document.getElementById('epic-phase-json-textarea').value.trim();
+      if (!raw) {
+        alert('Please paste a phase JSON specification to append.');
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(raw);
+
+        // Auto-link dependency to previous phase in this epic if not explicitly set
+        if (!parsed.depends_on_phase_id && addedEpicPhases.length > 0) {
+          parsed.depends_on_phase_id = addedEpicPhases[addedEpicPhases.length - 1].phaseId;
+        }
+
+        const response = await fetch(`/api/phases/epics/${activeEpicId}/phases/import`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify(parsed)
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          throw new Error(err.error || 'Failed to append phase to Epic');
+        }
+
+        const data = await response.json();
+        addedEpicPhases.push({
+          phaseId: data.phaseId,
+          title: parsed.title || `Phase ${addedEpicPhases.length + 1}`,
+          taskCount: data.taskCount || (parsed.tasks ? parsed.tasks.length : 0),
+          dependsOn: data.dependsOnPhaseId || null
+        });
+
+        document.getElementById('epic-phase-json-textarea').value = '';
+        alert(`✅ Appended "${parsed.title || 'Phase'}" to Epic #${activeEpicId}! (Total: ${addedEpicPhases.length} phases queued)`);
+        updateEpicBuilderUI();
+      } catch (err) {
+        alert('Invalid Phase JSON or import error: ' + err.message);
+      }
+    }
+
+    function updateEpicBuilderUI() {
+      const stepCreate = document.getElementById('epic-step-create');
+      const stepAppend = document.getElementById('epic-step-append');
+      const titleEl = document.getElementById('epic-active-title');
+      const branchEl = document.getElementById('epic-active-branch');
+      const listEl = document.getElementById('epic-added-phases-list');
+
+      if (!activeEpicId) {
+        if (stepCreate) stepCreate.style.display = 'block';
+        if (stepAppend) stepAppend.style.display = 'none';
+        return;
+      }
+
+      if (stepCreate) stepCreate.style.display = 'none';
+      if (stepAppend) stepAppend.style.display = 'block';
+
+      if (titleEl) titleEl.innerText = `🎯 Epic #${activeEpicId}: ${activeEpicTitle}`;
+      if (branchEl) branchEl.innerText = `Branch: ${activeEpicBranch} (Phases: ${addedEpicPhases.length})`;
+
+      if (listEl) {
+        if (addedEpicPhases.length === 0) {
+          listEl.innerHTML = '<span style="font-size: 0.72rem; color: var(--text-muted);">No phases added yet. Paste Phase 1 JSON below!</span>';
+        } else {
+          listEl.innerHTML = addedEpicPhases.map((p, idx) => `
+            <div style="font-size: 0.72rem; background: rgba(255,255,255,0.04); padding: 0.25rem 0.5rem; border-radius: 4px; display: flex; justify-content: space-between;">
+              <span>📌 <strong>${escapeHtml(p.title)}</strong> (${p.taskCount} tasks)</span>
+              <span style="color: #818cf8;">${p.dependsOn ? `Depends on Phase #${p.dependsOn}` : 'Root Phase'}</span>
+            </div>
+          `).join('');
+        }
+      }
+    }
+
+    function resetEpicContainerBuilder() {
+      activeEpicId = null;
+      activeEpicTitle = '';
+      activeEpicBranch = '';
+      addedEpicPhases = [];
+      updateEpicBuilderUI();
+    }
+
+    async function finishEpicRoadmap() {
+      closeJsonImportModal();
+      await loadPhasesList();
+      if (addedEpicPhases.length > 0) {
+        onPhaseSelect(addedEpicPhases[0].phaseId);
+      }
+      switchScreen('epic');
+    }
+
+    async function loadEpicRoadmapView(selectedEpicId) {
+      const select = document.getElementById('epic-selector-dropdown');
+      const container = document.getElementById('epic-roadmap-cards-container');
+      const progressContainer = document.getElementById('epic-overall-progress-container');
+      const metaInfo = document.getElementById('epic-meta-info');
+      const progressPercent = document.getElementById('epic-progress-percent');
+      const progressBar = document.getElementById('epic-progress-bar');
+
+      if (!select || !container) return;
+
+      try {
+        const epicsResponse = await fetch('/api/phases/epics', { headers: getHeaders() });
+        if (!epicsResponse.ok) return;
+        const epics = await epicsResponse.json();
+
+        if (epics.length === 0) {
+          select.innerHTML = '<option value="">No Epics Created Yet</option>';
+          container.innerHTML = `
+            <div class="glass-card" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+              <p style="margin: 0; font-size: 0.9rem;">No Multi-Phase Epic containers found.</p>
+              <button class="btn btn-secondary" onclick="switchScreen('setup'); openJsonImportModal(); setJsonImportTab('multi');" style="margin-top: 0.75rem; font-size: 0.8rem;">
+                ➕ Create Multi-Phase Epic Roadmap
+              </button>
+            </div>
+          `;
+          if (progressContainer) progressContainer.style.display = 'none';
+          return;
+        }
+
+        // Populate dropdown
+        select.innerHTML = epics.map(e => `<option value="${e.id}">Epic #${e.id}: ${escapeHtml(e.title)}</option>`).join('');
+
+        // Pick target epic ID
+        let targetId = selectedEpicId ? parseInt(selectedEpicId, 10) : (activeEpicId || epics[0].id);
+        select.value = targetId;
+
+        const currentEpic = epics.find(e => e.id === targetId) || epics[0];
+
+        // Fetch all phases
+        const phasesResponse = await fetch('/api/phases', { headers: getHeaders() });
+        if (!phasesResponse.ok) return;
+        const allPhases = await phasesResponse.json();
+
+        const epicPhases = allPhases.filter(p => p.epic_id === currentEpic.id);
+
+        if (epicPhases.length === 0) {
+          container.innerHTML = `
+            <div class="glass-card" style="text-align: center; padding: 1.5rem; color: var(--text-muted);">
+              <p style="margin: 0;">No phases appended to Epic #${currentEpic.id} (${escapeHtml(currentEpic.title)}) yet.</p>
+            </div>
+          `;
+          if (progressContainer) progressContainer.style.display = 'none';
+          return;
+        }
+
+        // Fetch tasks for each phase
+        let totalTasksCount = 0;
+        let completedTasksCount = 0;
+
+        const phaseCardsHtml = await Promise.all(epicPhases.map(async (phase, index) => {
+          let tasks = [];
+          try {
+            const tResp = await fetch(`/api/tasks?phase_id=${phase.id}`, { headers: getHeaders() });
+            if (tResp.ok) tasks = await tResp.json();
+          } catch (e) {
+            console.error(e);
+          }
+
+          totalTasksCount += tasks.length;
+          const finishedTasks = tasks.filter(t => t.status === 'pr_merged' || t.status === 'pr_approved' || t.status === 'completed');
+          completedTasksCount += finishedTasks.length;
+
+          const phaseProgressPct = tasks.length > 0 ? Math.round((finishedTasks.length / tasks.length) * 100) : 0;
+
+          // Status Badge format
+          const statusBadge = phase.status === 'completed' 
+            ? '<span style="background: rgba(16,185,129,0.2); color: #34d399; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600;">✅ COMPLETE</span>'
+            : (phase.status === 'running' 
+                ? '<span style="background: rgba(99,102,241,0.2); color: #818cf8; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600;">🚀 RUNNING</span>'
+                : '<span style="background: rgba(255,255,255,0.08); color: var(--text-muted); padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600;">⏸️ QUEUED</span>');
+
+          const taskRowsHtml = tasks.map(t => {
+            let taskBadge = '<span>⏳ Pending</span>';
+            if (t.status === 'pr_merged') taskBadge = '<span style="color: #34d399;">✅ Merged</span>';
+            else if (t.status === 'running') taskBadge = '<span style="color: #818cf8;">🚀 In Progress</span>';
+            else if (t.status === 'waiting_answer') taskBadge = '<span style="color: #fbbf24;">❓ Question</span>';
+            else if (t.status === 'pr_open') taskBadge = '<span style="color: #60a5fa;">🔍 PR Open</span>';
+
+            return `
+              <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.35rem 0.6rem; background: rgba(0,0,0,0.2); border-radius: 6px; font-size: 0.78rem;">
+                <div style="display: flex; align-items: center; gap: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <span style="color: var(--text-muted); font-family: monospace;">#${t.id}</span>
+                  <span style="color: var(--text-main); font-weight: 500;">${escapeHtml(t.title)}</span>
+                </div>
+                <div style="font-size: 0.72rem;">${taskBadge}</div>
+              </div>
+            `;
+          }).join('');
+
+          return `
+            <div class="glass-card" style="border-left: 3px solid ${phase.status === 'completed' ? '#10b981' : (phase.status === 'running' ? '#6366f1' : 'rgba(255,255,255,0.15)')};">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
+                <div>
+                  <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <h3 style="margin: 0; font-size: 0.95rem; color: var(--text-main);">Phase ${index + 1}: ${escapeHtml(phase.title)}</h3>
+                    ${statusBadge}
+                  </div>
+                  <div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 0.15rem;">
+                    Branch: <code style="color: #818cf8;">${escapeHtml(phase.phase_branch || 'auto-generating')}</code>
+                  </div>
+                </div>
+                <div style="text-align: right;">
+                  <span style="font-size: 0.78rem; font-weight: 600; color: var(--text-main);">${finishedTasks.length}/${tasks.length} Tasks</span>
+                  <div style="font-size: 0.7rem; color: var(--text-muted);">${phaseProgressPct}% done</div>
+                </div>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 0.3rem;">
+                ${taskRowsHtml || '<span style="font-size: 0.75rem; color: var(--text-muted);">No tasks defined in this phase</span>'}
+              </div>
+            </div>
+          `;
+        }));
+
+        container.innerHTML = phaseCardsHtml.join('');
+
+        // Update overall progress bar
+        const overallPct = totalTasksCount > 0 ? Math.round((completedTasksCount / totalTasksCount) * 100) : 0;
+        if (progressContainer) {
+          progressContainer.style.display = 'block';
+          metaInfo.innerText = `Master Branch: ${currentEpic.master_feature_branch}  |  Base: ${currentEpic.target_base_branch}`;
+          progressPercent.innerText = `${overallPct}% Epic Completion (${completedTasksCount}/${totalTasksCount} tasks)`;
+          progressBar.style.width = `${overallPct}%`;
+        }
+
+      } catch (err) {
+        console.error('Error loading epic roadmap:', err);
+      }
+    }
+
+    function copySampleJson() {
+      const sample = currentJsonImportTab === 'multi' ? {
+        "epic_title": "Public Website Rebuild 2026",
+        "master_feature_branch": "feature/epic-public-website-rebuild",
+        "target_base_branch": "develop",
+        "phases": [
+          { "title": "Phase 1: Foundation", "tasks": [{ "title": "Setup CSS Tokens", "description": "..." }] },
+          { "title": "Phase 2: Homepage", "depends_on_index": 0, "tasks": [{ "title": "Build Hero Section", "description": "..." }] }
+        ]
+      } : {
+        "title": "Phase 2 - Billing & Subscriptions",
+        "description": "Add Stripe integration and checkout flow.",
+        "mainBranch": "main",
+        "tasks": [
+          { "title": "Add Stripe SDK wrapper", "description": "..." },
+          { "title": "Add webhook handler", "description": "...", "depends_on": [0] }
+        ]
+      };
+
+      navigator.clipboard.writeText(JSON.stringify(sample, null, 2));
+      alert('Sample JSON copied to clipboard!');
+    }
+
+    async function importJsonIntoForm() {
+      const raw = document.getElementById('json-import-textarea').value.trim();
+      if (!raw) {
+        alert('Please paste a valid JSON payload.');
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(raw);
+
+        // If it's a multi-phase roadmap JSON (has phases array), submit to POST /api/phases/import
+        if (Array.isArray(parsed.phases)) {
+          const response = await fetch('/api/phases/import', {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify(parsed)
+          });
+
+          if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || 'Failed to import multi-phase roadmap');
+          }
+
+          const data = await response.json();
+          alert(`🎉 Multi-Phase Roadmap imported successfully! (Epic ID: ${data.epicId}, Main Branch: ${data.masterBranch})`);
+          closeJsonImportModal();
+          await loadPhasesList();
+          if (data.phaseIds && data.phaseIds.length > 0) {
+            onPhaseSelect(data.phaseIds[0]);
+          }
+          return;
+        }
+
+        // Single phase import into setup form
+        if (parsed.title) document.getElementById('phase-title').value = parsed.title;
+        if (parsed.description) document.getElementById('phase-description').value = parsed.description;
+        if (parsed.mainBranch) document.getElementById('main-branch').value = parsed.mainBranch;
+
+        if (Array.isArray(parsed.tasks) && parsed.tasks.length > 0) {
+          tasksList = parsed.tasks.map(t => ({
+            title: t.title || '',
+            description: t.description || '',
+            mode: t.mode || 'ai_assisted',
+            depends_on: Array.isArray(t.depends_on) ? t.depends_on : []
+          }));
+          renderTasksList();
+        }
+
+        closeJsonImportModal();
+        alert('Single phase JSON imported into setup form successfully!');
+      } catch (err) {
+        alert('Invalid JSON specification: ' + err.message);
       }
     }
 

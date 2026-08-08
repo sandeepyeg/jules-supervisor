@@ -221,6 +221,36 @@ export async function mergePR(prNumber, prTitle, expectedBaseBranch) {
 }
 
 /**
+ * Merges a head branch into a base branch directly on GitHub (e.g. merge completed phase_branch into master_feature_branch).
+ */
+export async function mergeBranch(headBranch, baseBranch, commitMessage = '') {
+  if (baseBranch === 'main' && NEVER_MERGE_TO_MAIN) {
+    throw new Error(`Direct branch merge into "main" is blocked by NEVER_MERGE_TO_MAIN.`);
+  }
+
+  const repoUrl = getRepoUrl();
+  const url = `${repoUrl}/merges`;
+  const body = {
+    base: baseBranch,
+    head: headBranch,
+    commit_message: commitMessage || `Supervisor: Merge ${headBranch} into ${baseBranch}`
+  };
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: getHeaders(),
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to merge branch ${headBranch} into ${baseBranch}: ${response.statusText} - ${errText}`);
+  }
+
+  return response.json();
+}
+
+/**
  * Parses the PR number from a pull request URL.
  */
 export function getPRNumber(prUrl) {

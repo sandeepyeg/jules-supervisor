@@ -1,0 +1,60 @@
+{
+  "epic_title": "Public Website Rebuild 2026",
+  "master_feature_branch": "feature/epic-public-website-rebuild",
+  "target_base_branch": "develop",
+  "phases": [
+    {
+      "title": "Phase 1: Core Layout & Typography Foundation",
+      "description": "Establish modern CSS design system, typography tokens, and header/footer layout components.",
+      "tasks": [
+        {
+          "title": "Setup Design System Tokens & Base CSS",
+          "description": "Create src/styles/tokens.css with color palette, HSL variables, and typography defaults.",
+          "mode": "ai_assisted"
+        },
+        {
+          "title": "Create Shared Navigation Header",
+          "description": "Build sticky header component in src/components/Header.jsx with theme toggle and mobile menu.",
+          "depends_on": [0],
+          "mode": "ai_assisted"
+        }
+      ]
+    },
+    {
+      "title": "Phase 2: Professional Homepage & Showcase",
+      "description": "Build marketing homepage hero section, feature cards, and social proof testimonials.",
+      "depends_on_index": 0,
+      "tasks": [
+        {
+          "title": "Build Hero Section with Motion",
+          "description": "Implement Hero section in src/components/Hero.jsx featuring responsive typography and CTA button.",
+          "mode": "ai_assisted"
+        },
+        {
+          "title": "Build Customer Testimonials Slider",
+          "description": "Create testimonials slider component in src/components/Testimonials.jsx.",
+          "depends_on": [0],
+          "mode": "ai_assisted"
+        }
+      ]
+    },
+    {
+      "title": "Phase 3: Interactive Pricing Matrix & FAQ",
+      "description": "Build tier comparison pricing tables and interactive FAQ accordion.",
+      "depends_on_index": 1,
+      "tasks": [
+        {
+          "title": "Build Pricing Table Matrix",
+          "description": "Create responsive pricing cards in src/components/Pricing.jsx with monthly/annual billing toggle.",
+          "mode": "ai_assisted"
+        },
+        {
+          "title": "Build FAQ Accordion Component",
+          "description": "Create accessible accordion component in src/components/FAQ.jsx with search input filter.",
+          "depends_on": [0],
+          "mode": "ai_assisted"
+        }
+      ]
+    }
+  ]
+}

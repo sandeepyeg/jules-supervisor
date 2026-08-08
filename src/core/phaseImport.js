@@ -137,12 +137,10 @@ export async function createEpicFromPayload(payload) {
       const dependsOnIdx = p.depends_on_index !== undefined ? p.depends_on_index : (pIdx > 0 ? pIdx - 1 : null);
       const dependsOnPhaseId = dependsOnIdx !== null && createdPhaseIds[dependsOnIdx] ? createdPhaseIds[dependsOnIdx] : null;
 
-      const phaseStatus = 'draft';
-      const phaseBranch = pIdx === 0 ? masterBranch : null;
-
+      const phaseStatus = pIdx === 0 ? 'draft' : 'queued';
       const [phaseRes] = await connection.query(
         'INSERT INTO phases (epic_id, depends_on_phase_id, title, description, main_branch, phase_branch, status) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [epicId, dependsOnPhaseId, p.title || `Phase ${pIdx + 1}`, p.description || '', masterBranch, phaseBranch, phaseStatus]
+        [epicId, dependsOnPhaseId, p.title || `Phase ${pIdx + 1}`, p.description || '', masterBranch, null, phaseStatus]
       );
       const phaseId = phaseRes.insertId;
       createdPhaseIds.push(phaseId);
@@ -195,7 +193,10 @@ export async function createPhaseInEpicFromPayload(epicId, payload) {
 
     const [epicRows] = await connection.query('SELECT * FROM epics WHERE id = ?', [epicId]);
     const epic = epicRows[0];
-    const masterBranch = epic ? epic.master_feature_branch : 'develop';
+    if (!epic) {
+      throw validationError(`Epic ${epicId} not found.`);
+    }
+    const masterBranch = epic.master_feature_branch;
 
     const [existingPhases] = await connection.query(
       'SELECT id FROM phases WHERE epic_id = ? ORDER BY id DESC LIMIT 1',
@@ -206,7 +207,7 @@ export async function createPhaseInEpicFromPayload(epicId, payload) {
     const { title, description, tasks } = payload || {};
     const [phaseRes] = await connection.query(
       'INSERT INTO phases (epic_id, depends_on_phase_id, title, description, main_branch, status) VALUES (?, ?, ?, ?, ?, ?)',
-      [epicId, parentPhaseId, title || 'Imported Phase', description || '', masterBranch, 'draft']
+      [epicId, parentPhaseId, title || 'Imported Phase', description || '', masterBranch, parentPhaseId ? 'queued' : 'draft']
     );
     const phaseId = phaseRes.insertId;
 

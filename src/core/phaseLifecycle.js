@@ -9,6 +9,19 @@ function lifecycleError(message, statusCode) {
   return err;
 }
 
+async function queueEpicPipeline(epicId, activePhaseId) {
+  const phases = await queries.getEpicPhases(epicId);
+  const queued = [];
+  for (const phase of phases) {
+    if (phase.id === activePhaseId || phase.status !== 'draft' || !phase.depends_on_phase_id) {
+      continue;
+    }
+    await queries.updatePhaseStatus(phase.id, 'queued');
+    queued.push(phase.id);
+  }
+  return queued;
+}
+
 /**
  * Starts a draft phase: creates its GitHub branch, marks it active, launches the
  * first ready tasks, and starts the background poller. This is the same action as
@@ -34,6 +47,20 @@ export async function startPhase(phaseId) {
   const shortTs = Date.now().toString(36).slice(-5); // e.g. "a3f2k"
   const branchName = `feature/${titleSlug}-${shortTs}`;
 
+  if (phase.epic_id) {
+    const epic = await queries.getEpic(phase.epic_id);
+    if (!epic) {
+      throw lifecycleError(`Epic ${phase.epic_id} not found for phase ${phaseId}`, 400);
+    }
+    if (phase.main_branch !== epic.master_feature_branch) {
+      throw lifecycleError(
+        `Phase base branch "${phase.main_branch}" does not match epic master branch "${epic.master_feature_branch}"`,
+        400
+      );
+    }
+    await github.ensureBranchFromBase(epic.master_feature_branch, epic.target_base_branch || 'develop');
+  }
+
   await github.createBranch(branchName, phase.main_branch);
 
   await queries.updatePhaseStatus(phaseId, 'active', {
@@ -41,8 +68,57 @@ export async function startPhase(phaseId) {
     started_at: new Date()
   });
 
+  const queuedPhaseIds = phase.epic_id
+    ? await queueEpicPipeline(phase.epic_id, phaseId)
+    : [];
+
   await taskManager.startReadyTasks(phaseId, branchName);
   poller.startPoller(phaseId);
 
-  return { started: true, branch: branchName };
+  return { started: true, branch: branchName, queuedPhaseIds };
+}
+
+/**
+ * Starts an epic by activating the first pending phase in dependency order. Later
+ * phases remain queued and are advanced automatically when their parent completes.
+ */
+export async function startEpic(epicId) {
+  const epic = await queries.getEpic(epicId);
+  if (!epic) {
+    throw lifecycleError('Epic not found', 404);
+  }
+
+  const phases = await queries.getEpicPhases(epicId);
+  if (phases.length === 0) {
+    throw lifecycleError('Epic has no phases to start', 400);
+  }
+
+  const activePhase = phases.find(phase => phase.status === 'active');
+  if (activePhase) {
+    const queuedPhaseIds = await queueEpicPipeline(epicId, activePhase.id);
+    poller.startPoller(activePhase.id);
+    return {
+      started: false,
+      alreadyActive: true,
+      activePhaseId: activePhase.id,
+      branch: activePhase.phase_branch,
+      queuedPhaseIds
+    };
+  }
+
+  const nextPhase = phases.find(phase => ['draft', 'queued'].includes(phase.status));
+  if (!nextPhase) {
+    throw lifecycleError('Epic has no draft or queued phases to start', 400);
+  }
+
+  if (nextPhase.status === 'queued') {
+    await queries.updatePhaseStatus(nextPhase.id, 'draft');
+  }
+
+  const result = await startPhase(nextPhase.id);
+  return {
+    ...result,
+    epicId,
+    activePhaseId: nextPhase.id
+  };
 }

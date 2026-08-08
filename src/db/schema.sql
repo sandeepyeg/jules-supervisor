@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS phases (
 
 ALTER TABLE phases ADD COLUMN epic_id INT NULL;
 ALTER TABLE phases ADD COLUMN depends_on_phase_id INT NULL;
+ALTER TABLE phases MODIFY COLUMN status ENUM('draft','queued','active','complete','failed') DEFAULT 'draft';
 
 CREATE TABLE IF NOT EXISTS tasks (
   id INT AUTO_INCREMENT PRIMARY KEY,

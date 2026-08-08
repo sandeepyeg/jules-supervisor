@@ -43,11 +43,13 @@ test('Dependent Phases, Epics & Auto-Merge Suite', async (t) => {
     assert.strictEqual(phase1.title, 'Phase 1: Foundations');
     assert.strictEqual(phase1.status, 'draft');
     assert.strictEqual(phase1.depends_on_phase_id, null);
+    assert.strictEqual(phase1.phase_branch, null);
 
     const phase2 = await queries.getPhase(result.phaseIds[1]);
     assert.strictEqual(phase2.title, 'Phase 2: Core Features');
-    assert.strictEqual(phase2.status, 'draft');
+    assert.strictEqual(phase2.status, 'queued');
     assert.strictEqual(phase2.depends_on_phase_id, result.phaseIds[0]);
+    assert.strictEqual(phase2.phase_branch, null);
   });
 
   await t.test('2. Appends single phase JSON payload into an existing Epic container', async () => {
@@ -73,6 +75,18 @@ test('Dependent Phases, Epics & Auto-Merge Suite', async (t) => {
 
     const import2 = await createPhaseInEpicFromPayload(epicId, phasePayload2);
     assert.strictEqual(import2.dependsOnPhaseId, import1.phaseId);
+
+    const firstPhase = await queries.getPhase(import1.phaseId);
+    const secondPhase = await queries.getPhase(import2.phaseId);
+    assert.strictEqual(firstPhase.status, 'draft');
+    assert.strictEqual(secondPhase.status, 'queued');
+  });
+
+  await t.test('2b. Rejects appending a phase into a missing Epic container', async () => {
+    await assert.rejects(
+      () => createPhaseInEpicFromPayload(999999, { title: 'No Epic Here' }),
+      /Epic 999999 not found/
+    );
   });
 
   await t.test('3. getQueuedPhasesReadyToStart returns queued phases when parent completes', async () => {
@@ -89,6 +103,39 @@ test('Dependent Phases, Epics & Auto-Merge Suite', async (t) => {
 
     const readyPhases = await queries.getQueuedPhasesReadyToStart();
     assert.ok(readyPhases.some(p => p.id === childPhaseId));
+  });
+
+  await t.test('3b. getQueuedPhasesReadyToStart auto-unlocks dependent draft phases inside epics only', async () => {
+    const epicId = await queries.createEpic({
+      title: 'Autopilot Epic',
+      master_feature_branch: 'feature/epic-autopilot',
+      target_base_branch: 'develop'
+    });
+
+    const parentPhaseId = await queries.createPhase({
+      title: 'Completed Epic Parent',
+      status: 'complete',
+      epic_id: epicId,
+      main_branch: 'feature/epic-autopilot'
+    });
+
+    const childPhaseId = await queries.createPhase({
+      title: 'Draft Epic Child',
+      status: 'draft',
+      epic_id: epicId,
+      depends_on_phase_id: parentPhaseId,
+      main_branch: 'feature/epic-autopilot'
+    });
+
+    const standaloneDraftId = await queries.createPhase({
+      title: 'Standalone Draft',
+      status: 'draft',
+      depends_on_phase_id: parentPhaseId
+    });
+
+    const readyPhases = await queries.getQueuedPhasesReadyToStart();
+    assert.ok(readyPhases.some(p => p.id === childPhaseId));
+    assert.ok(!readyPhases.some(p => p.id === standaloneDraftId));
   });
 
   await t.test('4. github.mergeBranch handles branch merging safely', async () => {

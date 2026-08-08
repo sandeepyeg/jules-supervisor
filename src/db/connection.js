@@ -28,6 +28,7 @@ export function resetInMemoryDb() {
 
 export function mockQuery(sql, params = []) {
   const sqlNormalized = sql.replace(/\s+/g, ' ').trim();
+  const sqlLower = sqlNormalized.toLowerCase();
 
   // Dynamic INSERT handler
   if (sqlNormalized.startsWith('INSERT INTO')) {
@@ -94,17 +95,38 @@ export function mockQuery(sql, params = []) {
     return [res ? [res] : []];
   }
 
+  // SELECT COUNT(*) as escalatedCount FROM tasks WHERE escalated = TRUE
+  if (sqlNormalized.includes('as escalatedCount FROM tasks')) {
+    const count = inMemoryDb.tasks.filter(t => t.escalated === true || t.escalated === 1).length;
+    return [[{ escalatedCount: count }]];
+  }
+
   // SELECT COUNT(*) as count FROM tasks WHERE status IN ('running', 'waiting_answer')
-  if (sqlNormalized.includes('count') && sqlNormalized.includes('from tasks')) {
-    if (sqlNormalized.includes("status in ('running', 'waiting_answer')")) {
+  if (sqlLower.includes('count') && sqlLower.includes('from tasks')) {
+    if (sqlLower.includes("status in ('running', 'waiting_answer')")) {
       const cnt = inMemoryDb.tasks.filter(t => t.status === 'running' || t.status === 'waiting_answer').length;
       return [[{ count: cnt }]];
     }
-    if (sqlNormalized.includes('jules_session_id is not null')) {
-      const cnt = inMemoryDb.tasks.filter(t => Boolean(t.jules_session_id)).length;
+    if (sqlLower.includes('jules_session_id is not null')) {
+      const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+      const countLastDayOnly = sqlLower.includes('created_at >= now() - interval 1 day');
+      const cnt = inMemoryDb.tasks.filter(t => {
+        if (!t.jules_session_id) return false;
+        if (!countLastDayOnly) return true;
+        return new Date(t.created_at).getTime() >= oneDayAgo;
+      }).length;
       return [[{ count: cnt }]];
     }
     return [[{ count: inMemoryDb.tasks.length }]];
+  }
+
+  // SELECT MIN(created_at) as oldestCreatedAt FROM tasks WHERE jules_session_id IS NOT NULL AND created_at >= NOW() - INTERVAL 1 DAY
+  if (sqlLower.includes('min(created_at) as oldestcreatedat') && sqlLower.includes('from tasks')) {
+    const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    const timestamps = inMemoryDb.tasks
+      .filter(t => t.jules_session_id && new Date(t.created_at).getTime() >= oneDayAgo)
+      .map(t => new Date(t.created_at).getTime());
+    return [[{ oldestCreatedAt: timestamps.length ? new Date(Math.min(...timestamps)) : null }]];
   }
 
   // SELECT * FROM tasks WHERE status = 'running' AND updated_at <= NOW() - INTERVAL ? MINUTE
@@ -132,6 +154,11 @@ export function mockQuery(sql, params = []) {
     return [epicPhases.length ? [epicPhases[0]] : []];
   }
 
+  // SELECT * FROM phases WHERE epic_id = ? ORDER BY id ASC
+  if (sqlNormalized.includes('FROM phases WHERE epic_id = ? ORDER BY id ASC')) {
+    return [inMemoryDb.phases.filter(p => p.epic_id == params[0]).sort((a, b) => a.id - b.id)];
+  }
+
   // SELECT * FROM phases ORDER BY created_at DESC
   if (sqlNormalized.startsWith('SELECT * FROM phases ORDER BY')) {
     return [[...inMemoryDb.phases].sort((a, b) => b.created_at - a.created_at)];
@@ -139,7 +166,10 @@ export function mockQuery(sql, params = []) {
 
   // SELECT * FROM phases WHERE status = 'queued'
   if (sqlNormalized.startsWith("SELECT * FROM phases WHERE status = 'queued'")) {
-    return [inMemoryDb.phases.filter(p => p.status === 'queued')];
+    return [inMemoryDb.phases.filter(p =>
+      p.status === 'queued'
+      || (p.status === 'draft' && p.epic_id !== null && p.epic_id !== undefined && p.depends_on_phase_id !== null && p.depends_on_phase_id !== undefined)
+    )];
   }
 
   // SELECT id FROM phases WHERE status = 'complete'
@@ -233,12 +263,6 @@ export function mockQuery(sql, params = []) {
       return task && task.phase_id === params[0] && (p.resolved === 0 || p.resolved === false);
     }).length;
     return [[{ pendingCount: count }]];
-  }
-
-  // SELECT COUNT(*) as escalatedCount FROM tasks WHERE escalated = TRUE
-  if (sqlNormalized.includes('as escalatedCount FROM tasks')) {
-    const count = inMemoryDb.tasks.filter(t => t.escalated === true || t.escalated === 1).length;
-    return [[{ escalatedCount: count }]];
   }
 
   // UPDATE phases SET

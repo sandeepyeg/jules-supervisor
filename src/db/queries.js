@@ -15,10 +15,8 @@ export async function createEpic({ title, master_feature_branch, target_base_bra
  * Retrieves an epic by ID.
  */
 export async function getEpic(epicId) {
-  const [rows] = await pool.query('SELECT * FROM phases WHERE id = ?', [epicId]);
-  // Also check epics table
   const [epicRows] = await pool.query('SELECT * FROM epics WHERE id = ?', [epicId]);
-  return epicRows[0] || rows[0] || null;
+  return epicRows[0] || null;
 }
 
 /**
@@ -60,7 +58,9 @@ export async function createPhase({ title, description = '', status = 'active', 
  * Retrieves queued phases ready to start (parent phase is complete or depends_on_phase_id is null).
  */
 export async function getQueuedPhasesReadyToStart() {
-  const [queuedPhases] = await pool.query("SELECT * FROM phases WHERE status = 'queued'");
+  const [queuedPhases] = await pool.query(
+    "SELECT * FROM phases WHERE status = 'queued' OR (status = 'draft' AND epic_id IS NOT NULL AND depends_on_phase_id IS NOT NULL)"
+  );
   const [completedPhases] = await pool.query("SELECT id FROM phases WHERE status = 'complete'");
   const completedIds = new Set(completedPhases.map(p => p.id));
 
@@ -192,8 +192,21 @@ export async function getGlobalRunningTaskCount() {
  * Gets count of all tasks launched in the past 24 hours.
  */
 export async function getDailyLaunchedTaskCount() {
-  const [rows] = await pool.query("SELECT COUNT(*) as count FROM tasks WHERE jules_session_id IS NOT NULL");
+  const [rows] = await pool.query(
+    "SELECT COUNT(*) as count FROM tasks WHERE jules_session_id IS NOT NULL AND created_at >= NOW() - INTERVAL 1 DAY"
+  );
   return rows[0] ? parseInt(rows[0].count, 10) : 0;
+}
+
+/**
+ * Returns the oldest launch inside the rolling 24h window so the supervisor can
+ * wait until capacity naturally reopens instead of repeatedly hammering Jules.
+ */
+export async function getOldestDailyLaunchCreatedAt() {
+  const [rows] = await pool.query(
+    "SELECT MIN(created_at) as oldestCreatedAt FROM tasks WHERE jules_session_id IS NOT NULL AND created_at >= NOW() - INTERVAL 1 DAY"
+  );
+  return rows[0]?.oldestCreatedAt || null;
 }
 
 /**
@@ -344,4 +357,3 @@ export async function resetTaskForConflictRework(taskId, nextRetryCount) {
     retry_count: nextRetryCount
   });
 }
-

@@ -4,6 +4,7 @@ import * as queries from '../db/queries.js';
 import { portalAuth } from './auth.js';
 import { getMetrics } from '../core/metrics.js';
 import { getPollerHealth } from '../core/poller.js';
+import { getRateLimitStatus } from '../core/taskManager.js';
 import { MAX_AUTO_REVISION_ATTEMPTS } from '../core/config.js';
 
 const router = express.Router();
@@ -24,7 +25,8 @@ router.get('/metrics', portalAuth, async (req, res) => {
       ...getMetrics(),
       escalatedTasksCount: escalatedCount,
       maxAutoRevisionAttempts: MAX_AUTO_REVISION_ATTEMPTS,
-      pollers: getPollerHealth()
+      pollers: getPollerHealth(),
+      launchThrottle: getRateLimitStatus()
     });
   } catch (error) {
     console.error('Error getting metrics:', error);

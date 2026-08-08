@@ -7,7 +7,7 @@ import * as poller from '../core/poller.js';
 import { portalAuth } from './auth.js';
 import { MAX_AUTO_REVISION_ATTEMPTS } from '../core/config.js';
 import { createPhaseFromPayload, createEpicFromPayload, createPhaseInEpicFromPayload } from '../core/phaseImport.js';
-import { startPhase } from '../core/phaseLifecycle.js';
+import { startEpic, startPhase } from '../core/phaseLifecycle.js';
 
 const router = express.Router();
 
@@ -115,6 +115,22 @@ router.post('/epics/:epicId/phases/import', portalAuth, async (req, res) => {
     res.status(201).json(result);
   } catch (error) {
     console.error(`Error importing phase into epic #${epicId}:`, error);
+    res.status(error.statusCode || 500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/phases/epics/:epicId/start
+ * Starts or resumes an Epic pipeline. The first pending phase becomes active;
+ * downstream phases stay queued and auto-start one by one as parents complete.
+ */
+router.post('/epics/:epicId/start', portalAuth, async (req, res) => {
+  const epicId = parseInt(req.params.epicId, 10);
+  try {
+    const result = await startEpic(epicId);
+    res.json(result);
+  } catch (error) {
+    console.error(`Error starting epic #${epicId}:`, error);
     res.status(error.statusCode || 500).json({ error: error.message });
   }
 });

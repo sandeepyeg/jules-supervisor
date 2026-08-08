@@ -33,28 +33,44 @@ const getRepoUrl = () => {
   return `https://api.github.com/repos/${owner}/${repo}`;
 };
 
-/**
- * Creates a branch from a reference branch.
- */
-export async function createBranch(newBranchName, fromBranch) {
+async function getBranchRef(branchName) {
   const repoUrl = getRepoUrl();
-  
-  // 1. Get reference branch SHA
-  const refUrl = `${repoUrl}/git/ref/heads/${fromBranch}`;
-  const getRefResponse = await fetchWithRetry(refUrl, {
+  const response = await fetchWithRetry(`${repoUrl}/git/ref/heads/${branchName}`, {
     method: 'GET',
     headers: getHeaders()
   });
 
-  if (!getRefResponse.ok) {
-    const errText = await getRefResponse.text();
-    throw new Error(`Failed to get branch ref for ${fromBranch}: ${getRefResponse.statusText} - ${errText}`);
+  if (response.status === 404) {
+    return null;
   }
 
-  const refData = await getRefResponse.json();
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to get branch ref for ${branchName}: ${response.statusText} - ${errText}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Returns true when a branch exists in the configured GitHub repository.
+ */
+export async function branchExists(branchName) {
+  return Boolean(await getBranchRef(branchName));
+}
+
+/**
+ * Creates a branch from an existing reference branch. This intentionally does
+ * not fall back to main/develop: a wrong base branch must fail loudly.
+ */
+export async function createBranch(newBranchName, fromBranch) {
+  const repoUrl = getRepoUrl();
+  const refData = await getBranchRef(fromBranch);
+  if (!refData) {
+    throw new Error(`Failed to get branch ref for ${fromBranch}: branch does not exist`);
+  }
   const sha = refData.object.sha;
 
-  // 2. Create the new branch ref
   const createRefUrl = `${repoUrl}/git/refs`;
   const body = {
     ref: `refs/heads/${newBranchName}`,
@@ -69,11 +85,25 @@ export async function createBranch(newBranchName, fromBranch) {
 
   if (!createResponse.ok) {
     const errText = await createResponse.text();
-    // If branch already exists, we might want to log it or handle it. Let's throw for now so supervisor knows.
+    if (errText.includes('Reference already exists')) {
+      console.log(`[GitHub] Branch ${newBranchName} already exists.`);
+      return { created: true, existing: true, branch: newBranchName };
+    }
     throw new Error(`Failed to create branch ${newBranchName}: ${createResponse.statusText} - ${errText}`);
   }
 
-  return createResponse.json();
+  return await createResponse.json();
+}
+
+/**
+ * Ensures a branch exists, creating it from an explicit base branch if missing.
+ */
+export async function ensureBranchFromBase(branchName, baseBranch) {
+  if (await branchExists(branchName)) {
+    return { created: false, existing: true, branch: branchName };
+  }
+  console.log(`[GitHub] Creating missing branch "${branchName}" from explicit base "${baseBranch}".`);
+  return createBranch(branchName, baseBranch);
 }
 
 /**
@@ -618,4 +648,3 @@ export async function closeDuplicateTaskPRs(baseBranch, currentPRNumber, taskId,
     console.warn(`Error scanning for duplicate PRs on branch ${baseBranch}:`, err.message);
   }
 }
-

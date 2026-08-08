@@ -76,8 +76,8 @@ export async function getStatusSummaryMessage() {
 
 let bot;
 
-if (!token || token.startsWith('your_')) {
-  console.warn('WARNING: TELEGRAM_BOT_TOKEN is not defined or is a placeholder. Telegram service running in mock mode.');
+if (!token || token.startsWith('your_') || process.env.NODE_ENV === 'test' || process.env.JULES_SUPERVISOR_TEST === '1') {
+  console.warn('WARNING: TELEGRAM_BOT_TOKEN is not defined, placeholder, or in TEST mode. Telegram service running in mock mode.');
   bot = {
     sendMessage: async (cid, text, options) => {
       console.log(`[Mock Telegram] Send to ${cid || chatId}: ${text}`, options || '');
@@ -450,7 +450,7 @@ export async function sendTaskMergedNotification(taskTitle, taskId, prUrl, phase
  * Sends an alert when all phase tasks are complete.
  */
 export async function sendPhaseCompleteNotification(phaseBranch, phaseTitle) {
-  const formatted = `🏁 Phase Complete\n\nPhase: ${phaseTitle}\n\nPhase complete. Review branch ${phaseBranch}. Human should manually create/review/merge final PR into main.`;
+  const formatted = `🏁 Phase Complete\n\nPhase: ${phaseTitle}\n\nPhase tasks completed on branch \`${phaseBranch}\`.\nDraft PR to merge into develop/main is automatically created on GitHub. Please review and merge the PR!`;
   const options = {
     reply_markup: {
       inline_keyboard: [

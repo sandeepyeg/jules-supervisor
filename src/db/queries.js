@@ -229,3 +229,20 @@ export async function updateReminderSent(pendingId) {
     [pendingId]
   );
 }
+
+/**
+ * Resets a task to 'queued' state for rework on the latest target branch after merge conflict.
+ */
+export async function resetTaskForConflictRework(taskId, nextRetryCount) {
+  await updateTaskStatus(taskId, 'queued', {
+    jules_session_id: null,
+    pr_url: null,
+    pr_number: null,
+    pr_revision_count: 0,
+    last_reviewed_sha: null,
+    last_review_verdict: null,
+    escalated: false,
+    retry_count: nextRetryCount
+  });
+}
+

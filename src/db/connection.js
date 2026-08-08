@@ -49,21 +49,21 @@ export function mockQuery(sql, params = []) {
       newRecord.completed_at = null;
       inMemoryDb.phases.push(newRecord);
     } else if (table === 'tasks') {
-      newRecord.jules_notes = newRecord.jules_notes || null;
-      newRecord.mode = newRecord.mode || 'ai_assisted';
-      newRecord.status = newRecord.status || 'queued';
-      newRecord.depends_on = newRecord.depends_on || null;
-      newRecord.sort_order = newRecord.sort_order || 0;
-      newRecord.jules_session_id = null;
-      newRecord.pr_url = null;
-      newRecord.pr_number = null;
-      newRecord.last_activity_id = null;
-      newRecord.retry_count = 0;
-      newRecord.last_reviewed_sha = null;
-      newRecord.last_review_verdict = null;
-      newRecord.pr_revision_count = 0;
-      newRecord.nudge_sent = false;
-      newRecord.escalated = false;
+      newRecord.jules_notes = newRecord.jules_notes ?? null;
+      newRecord.mode = newRecord.mode ?? 'ai_assisted';
+      newRecord.status = newRecord.status ?? 'queued';
+      newRecord.depends_on = newRecord.depends_on ?? null;
+      newRecord.sort_order = newRecord.sort_order ?? 0;
+      newRecord.jules_session_id = newRecord.jules_session_id ?? null;
+      newRecord.pr_url = newRecord.pr_url ?? null;
+      newRecord.pr_number = newRecord.pr_number ?? null;
+      newRecord.last_activity_id = newRecord.last_activity_id ?? null;
+      newRecord.retry_count = newRecord.retry_count ?? 0;
+      newRecord.last_reviewed_sha = newRecord.last_reviewed_sha ?? null;
+      newRecord.last_review_verdict = newRecord.last_review_verdict ?? null;
+      newRecord.pr_revision_count = newRecord.pr_revision_count ?? 0;
+      newRecord.nudge_sent = newRecord.nudge_sent ?? false;
+      newRecord.escalated = newRecord.escalated ?? false;
       newRecord.created_at = new Date();
       newRecord.updated_at = new Date();
       inMemoryDb.tasks.push(newRecord);
@@ -83,7 +83,7 @@ export function mockQuery(sql, params = []) {
 
   // SELECT * FROM phases WHERE id = ?
   if (sqlNormalized.startsWith('SELECT * FROM phases WHERE id = ?')) {
-    const res = inMemoryDb.phases.find(p => p.id === params[0]);
+    const res = inMemoryDb.phases.find(p => p.id == params[0]);
     return [res ? [res] : []];
   }
 
@@ -99,23 +99,23 @@ export function mockQuery(sql, params = []) {
 
   // SELECT * FROM tasks WHERE id = ?
   if (sqlNormalized.startsWith('SELECT * FROM tasks WHERE id = ?')) {
-    const res = inMemoryDb.tasks.find(t => t.id === params[0]);
+    const res = inMemoryDb.tasks.find(t => t.id == params[0]);
     return [res ? [res] : []];
   }
 
   // SELECT status, title FROM tasks WHERE phase_id = ?
   if (sqlNormalized.includes('SELECT status, title FROM tasks WHERE phase_id = ?')) {
-    return [inMemoryDb.tasks.filter(t => t.phase_id === params[0]).map(t => ({ status: t.status, title: t.title }))];
+    return [inMemoryDb.tasks.filter(t => t.phase_id == params[0]).map(t => ({ status: t.status, title: t.title }))];
   }
 
   // SELECT * FROM tasks WHERE phase_id = ? AND status IN ('running', 'waiting_answer', 'pr_open')
   if (sqlNormalized.includes("status IN ('running', 'waiting_answer', 'pr_open')") || sqlNormalized.includes("status IN ('running','waiting_answer','pr_open')")) {
-    return [inMemoryDb.tasks.filter(t => t.phase_id === params[0] && ['running', 'waiting_answer', 'pr_open'].includes(t.status))];
+    return [inMemoryDb.tasks.filter(t => t.phase_id == params[0] && ['running', 'waiting_answer', 'pr_open'].includes(t.status))];
   }
 
   // SELECT MAX(sort_order) as maxSort FROM tasks WHERE phase_id = ?
   if (sqlNormalized.startsWith('SELECT MAX(sort_order) as maxSort FROM tasks WHERE phase_id = ?')) {
-    const phaseTasks = inMemoryDb.tasks.filter(t => t.phase_id === params[0]);
+    const phaseTasks = inMemoryDb.tasks.filter(t => t.phase_id == params[0]);
     const maxSort = phaseTasks.length
       ? Math.max(...phaseTasks.map(t => Number(t.sort_order || 0)))
       : null;
@@ -124,12 +124,12 @@ export function mockQuery(sql, params = []) {
 
   // SELECT * FROM tasks WHERE phase_id = ? ORDER BY sort_order ASC
   if (sqlNormalized.includes('SELECT * FROM tasks WHERE phase_id = ? ORDER BY sort_order ASC')) {
-    return [inMemoryDb.tasks.filter(t => t.phase_id === params[0]).sort((a, b) => a.sort_order - b.sort_order)];
+    return [inMemoryDb.tasks.filter(t => t.phase_id == params[0]).sort((a, b) => a.sort_order - b.sort_order)];
   }
 
   // SELECT * FROM tasks WHERE phase_id = ?
   if (sqlNormalized.startsWith('SELECT * FROM tasks WHERE phase_id = ?')) {
-    return [inMemoryDb.tasks.filter(t => t.phase_id === params[0])];
+    return [inMemoryDb.tasks.filter(t => t.phase_id == params[0])];
   }
 
   // SELECT * FROM telegram_pending WHERE telegram_message_id = ? AND resolved = FALSE LIMIT 1

@@ -521,3 +521,34 @@ export async function updatePRBranch(prNumber) {
   console.log(`Auto-updated base branch for PR #${prNumber}:`, data.message || 'success');
   return true;
 }
+
+/**
+ * Closes an open Pull Request with an optional comment.
+ */
+export async function closePR(prNumber, comment = null) {
+  if (comment) {
+    try {
+      await addPRComment(prNumber, comment);
+    } catch (commentErr) {
+      console.warn(`Could not add closing comment to PR #${prNumber}:`, commentErr.message);
+    }
+  }
+
+  const repoUrl = getRepoUrl();
+  const url = `${repoUrl}/pulls/${prNumber}`;
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: getHeaders(),
+    body: JSON.stringify({ state: 'closed' })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    console.warn(`Could not close PR #${prNumber}: ${response.statusText} - ${errText}`);
+    return false;
+  }
+
+  console.log(`Successfully closed PR #${prNumber} on GitHub.`);
+  return true;
+}
+

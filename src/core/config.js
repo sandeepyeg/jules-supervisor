@@ -19,6 +19,7 @@ export let MAX_PR_DIFF_CHARS = parseInt(process.env.MAX_PR_DIFF_CHARS || '120000
 export let PR_REVIEW_CHUNK_CHARS = parseInt(process.env.PR_REVIEW_CHUNK_CHARS || '20000', 10);
 export let GEMINI_DAILY_FREE_CALL_BUDGET = parseInt(process.env.GEMINI_DAILY_FREE_CALL_BUDGET || '450', 10);
 export let MAX_AUTO_REVISION_ATTEMPTS = parseInt(process.env.MAX_AUTO_REVISION_ATTEMPTS || '2', 10);
+export let MAX_CONFLICT_RETRIES = parseInt(process.env.MAX_CONFLICT_RETRIES || '2', 10);
 
 export let POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS || '30000', 10);
 export let TELEGRAM_REMINDER_MS = parseInt(process.env.TELEGRAM_REMINDER_MS || '300000', 10);
@@ -27,6 +28,9 @@ export let MST_OVERNIGHT_START_HOUR = parseInt(process.env.MST_OVERNIGHT_START_H
 export let MST_OVERNIGHT_END_HOUR = parseInt(process.env.MST_OVERNIGHT_END_HOUR || '7', 10); // 7 AM MST
 
 export function isMSTOvernight(date = new Date()) {
+  if (process.env.JULES_SUPERVISOR_TEST === '1' && process.env.FORCE_OVERNIGHT !== 'true') {
+    return false;
+  }
   try {
     const mstTimeStr = date.toLocaleString("en-US", { timeZone: "America/Denver", hour12: false });
     const hourStr = mstTimeStr.split(',')[1]?.trim().split(':')[0];
@@ -62,6 +66,7 @@ export function reloadConfig() {
   PR_REVIEW_CHUNK_CHARS = parseInt(process.env.PR_REVIEW_CHUNK_CHARS || '20000', 10);
   GEMINI_DAILY_FREE_CALL_BUDGET = parseInt(process.env.GEMINI_DAILY_FREE_CALL_BUDGET || '450', 10);
   MAX_AUTO_REVISION_ATTEMPTS = parseInt(process.env.MAX_AUTO_REVISION_ATTEMPTS || '2', 10);
+  MAX_CONFLICT_RETRIES = parseInt(process.env.MAX_CONFLICT_RETRIES || '2', 10);
 
   POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS || '30000', 10);
   TELEGRAM_REMINDER_MS = parseInt(process.env.TELEGRAM_REMINDER_MS || '300000', 10);

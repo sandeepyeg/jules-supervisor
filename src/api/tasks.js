@@ -7,6 +7,26 @@ import * as prReviewer from '../core/prReviewer.js';
 const router = express.Router();
 
 /**
+ * GET /api/tasks?phase_id=:phaseId
+ * Lists tasks for a phase. This must be registered before /:id so the roadmap
+ * can fetch task lists without being treated as a task-id lookup.
+ */
+router.get('/', portalAuth, async (req, res) => {
+  const phaseId = parseInt(req.query.phase_id, 10);
+  if (!phaseId) {
+    return res.status(400).json({ error: 'phase_id query parameter is required' });
+  }
+
+  try {
+    const tasks = await queries.getTasksForPhase(phaseId);
+    res.json(tasks);
+  } catch (error) {
+    console.error(`Error fetching tasks for phase #${phaseId}:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * GET /api/tasks/:id
  * Retrieves detail for a specific task.
  */

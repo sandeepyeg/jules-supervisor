@@ -707,6 +707,38 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     assert.strictEqual(responseBody.error, 'Use POST /api/tasks/:id/mark-merged so GitHub PR verification is enforced.');
   });
 
+  await t.test('GET /api/tasks?phase_id lists tasks for roadmap aggregation', async () => {
+    const req = {
+      method: 'GET',
+      url: '/',
+      query: { phase_id: String(phaseId) },
+      headers: {
+        'x-portal-key': getPortalSecret()
+      }
+    };
+    let responseStatus = null;
+    let responseBody = null;
+    const res = {
+      status(code) { responseStatus = code; return this; },
+      json(data) { responseBody = data; return this; }
+    };
+
+    await new Promise((resolve) => {
+      const origJson = res.json;
+      res.json = (data) => {
+        origJson.call(res, data);
+        resolve();
+        return res;
+      };
+      tasksRouter(req, res, () => resolve());
+    });
+
+    assert.strictEqual(responseStatus, null);
+    assert.ok(Array.isArray(responseBody));
+    assert.ok(responseBody.some(task => task.id === task1Id));
+    assert.ok(responseBody.some(task => task.id === task2Id));
+  });
+
   await t.test('Phase completion does not merge into main', async () => {
     // Update phase to active, complete all tasks
     await queries.updatePhaseStatus(phaseId, 'active', { phase_branch: 'feature/phase-10' });

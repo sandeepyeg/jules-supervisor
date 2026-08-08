@@ -3355,7 +3355,9 @@
         if (!phasesResponse.ok) return;
         const allPhases = await phasesResponse.json();
 
-        const epicPhases = allPhases.filter(p => p.epic_id === currentEpic.id);
+        const epicPhases = allPhases
+          .filter(p => p.epic_id === currentEpic.id)
+          .sort((a, b) => a.id - b.id);
 
         if (epicPhases.length === 0) {
           container.innerHTML = `
@@ -3381,24 +3383,29 @@
           }
 
           totalTasksCount += tasks.length;
-          const finishedTasks = tasks.filter(t => t.status === 'pr_merged' || t.status === 'pr_approved' || t.status === 'completed');
+          const finishedTasks = tasks.filter(t => t.status === 'merged' || t.status === 'skipped');
           completedTasksCount += finishedTasks.length;
 
           const phaseProgressPct = tasks.length > 0 ? Math.round((finishedTasks.length / tasks.length) * 100) : 0;
 
-          // Status Badge format
-          const statusBadge = phase.status === 'completed' 
-            ? '<span style="background: rgba(16,185,129,0.2); color: #34d399; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600;">✅ COMPLETE</span>'
-            : (phase.status === 'running' 
-                ? '<span style="background: rgba(99,102,241,0.2); color: #818cf8; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600;">🚀 RUNNING</span>'
-                : '<span style="background: rgba(255,255,255,0.08); color: var(--text-muted); padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600;">⏸️ QUEUED</span>');
+          const phaseBadgeMap = {
+            complete: '<span style="background: rgba(16,185,129,0.2); color: #34d399; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600;">✅ COMPLETE</span>',
+            active: '<span style="background: rgba(99,102,241,0.2); color: #818cf8; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600;">🚀 ACTIVE</span>',
+            paused: '<span style="background: rgba(245,158,11,0.18); color: #fbbf24; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600;">⏸ PAUSED</span>',
+            queued: '<span style="background: rgba(255,255,255,0.08); color: var(--text-muted); padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600;">⏳ QUEUED</span>',
+            draft: '<span style="background: rgba(100,116,139,0.16); color: #94a3b8; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600;">DRAFT</span>',
+            failed: '<span style="background: rgba(239,68,68,0.16); color: #f87171; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600;">FAILED</span>'
+          };
+          const statusBadge = phaseBadgeMap[phase.status] || phaseBadgeMap.draft;
 
           const taskRowsHtml = tasks.map(t => {
             let taskBadge = '<span>⏳ Pending</span>';
-            if (t.status === 'pr_merged') taskBadge = '<span style="color: #34d399;">✅ Merged</span>';
+            if (t.status === 'merged') taskBadge = '<span style="color: #34d399;">✅ Merged</span>';
+            else if (t.status === 'skipped') taskBadge = '<span style="color: #94a3b8;">⏭ Skipped</span>';
             else if (t.status === 'running') taskBadge = '<span style="color: #818cf8;">🚀 In Progress</span>';
             else if (t.status === 'waiting_answer') taskBadge = '<span style="color: #fbbf24;">❓ Question</span>';
             else if (t.status === 'pr_open') taskBadge = '<span style="color: #60a5fa;">🔍 PR Open</span>';
+            else if (t.status === 'failed') taskBadge = '<span style="color: #f87171;">Failed</span>';
 
             let depBadge = '';
             let deps = [];
@@ -3424,7 +3431,7 @@
           }).join('');
 
           return `
-            <div class="glass-card" style="border-left: 3px solid ${phase.status === 'completed' ? '#10b981' : (phase.status === 'running' ? '#6366f1' : 'rgba(255,255,255,0.15)')};">
+            <div class="glass-card" style="border-left: 3px solid ${phase.status === 'complete' ? '#10b981' : (phase.status === 'active' ? '#6366f1' : (phase.status === 'paused' ? '#f59e0b' : 'rgba(255,255,255,0.15)'))};">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.6rem;">
                 <div>
                   <div style="display: flex; align-items: center; gap: 0.5rem;">

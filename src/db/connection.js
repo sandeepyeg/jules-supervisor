@@ -107,6 +107,14 @@ export function mockQuery(sql, params = []) {
     return [[{ count: inMemoryDb.tasks.length }]];
   }
 
+  // SELECT * FROM tasks WHERE status = 'running' AND updated_at <= NOW() - INTERVAL ? MINUTE
+  if (sqlNormalized.includes("FROM tasks WHERE status = 'running' AND updated_at")) {
+    const thresholdMins = params[0] || 30;
+    const cutoff = Date.now() - thresholdMins * 60 * 1000;
+    const res = inMemoryDb.tasks.filter(t => t.status === 'running' && t.updated_at && new Date(t.updated_at).getTime() <= cutoff);
+    return [[res]];
+  }
+
   // SELECT * FROM epics ORDER BY id DESC
   if (sqlNormalized.startsWith('SELECT * FROM epics ORDER BY')) {
     return [[...inMemoryDb.epics].sort((a, b) => b.id - a.id)];

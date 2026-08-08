@@ -4,6 +4,7 @@ import * as taskManager from './taskManager.js';
 import * as telegram from '../services/telegram.js';
 import * as github from '../services/github.js';
 import * as config from './config.js';
+import { checkStaleRunningTasks } from './staleWatcher.js';
 
 // Keep track of active interval references by phase ID so we can stop them if needed
 const activePollers = new Map();
@@ -13,6 +14,7 @@ const manuallyPausedPollers = new Set();
 /**
  * Watchdog: runs every 2 minutes and auto-revives any dead pollers for active phases.
  * Handles server restarts, crashes, or any reason the poller interval died.
+ * Also checks for stale running tasks (>30m) and alerts via Telegram.
  */
 setInterval(async () => {
   try {
@@ -26,6 +28,9 @@ setInterval(async () => {
         startPoller(phase.id);
       }
     }
+
+    // Check for stale running tasks
+    await checkStaleRunningTasks(30);
   } catch (watchdogErr) {
     console.warn('[Watchdog] Error checking poller health:', watchdogErr.message);
   }

@@ -197,6 +197,17 @@ export async function getDailyLaunchedTaskCount() {
 }
 
 /**
+ * Gets tasks that have been in 'running' status for longer than thresholdMinutes.
+ */
+export async function getStaleRunningTasks(thresholdMinutes = 30) {
+  const [rows] = await pool.query(
+    "SELECT * FROM tasks WHERE status = 'running' AND updated_at <= NOW() - INTERVAL ? MINUTE",
+    [thresholdMinutes]
+  );
+  return rows;
+}
+
+/**
  * Returns ALL tasks for a phase regardless of status.
  */
 export async function getTasksForPhase(phaseId) {

@@ -3320,11 +3320,23 @@
             else if (t.status === 'waiting_answer') taskBadge = '<span style="color: #fbbf24;">❓ Question</span>';
             else if (t.status === 'pr_open') taskBadge = '<span style="color: #60a5fa;">🔍 PR Open</span>';
 
+            let depBadge = '';
+            let deps = [];
+            if (t.depends_on) {
+              try {
+                deps = typeof t.depends_on === 'string' ? JSON.parse(t.depends_on) : t.depends_on;
+              } catch (e) {}
+            }
+            if (Array.isArray(deps) && deps.length > 0) {
+              depBadge = `<span style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); padding: 0.1rem 0.35rem; border-radius: 4px; font-size: 0.68rem; color: #a78bfa; margin-left: 0.4rem;">🔗 Depends on ${deps.map(id => '#' + id).join(', ')}</span>`;
+            }
+
             return `
               <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.35rem 0.6rem; background: rgba(0,0,0,0.2); border-radius: 6px; font-size: 0.78rem;">
                 <div style="display: flex; align-items: center; gap: 0.4rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                   <span style="color: var(--text-muted); font-family: monospace;">#${t.id}</span>
                   <span style="color: var(--text-main); font-weight: 500;">${escapeHtml(t.title)}</span>
+                  ${depBadge}
                 </div>
                 <div style="font-size: 0.72rem;">${taskBadge}</div>
               </div>

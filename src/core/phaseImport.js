@@ -113,7 +113,8 @@ export async function createPhaseFromPayload(payload) {
 export async function createEpicFromPayload(payload) {
   const { epic_title, title, master_feature_branch, target_base_branch = 'develop', phases } = payload || {};
   const epicTitle = epic_title || title || 'New Multi-Phase Epic';
-  const masterBranch = master_feature_branch || `feature/epic-${Date.now()}`;
+  const slug = epicTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+  const masterBranch = master_feature_branch || `feature/epic-${slug || Date.now()}`;
 
   if (!Array.isArray(phases) || phases.length === 0) {
     throw validationError('Multi-phase import payload must contain a non-empty "phases" array.');
@@ -136,7 +137,7 @@ export async function createEpicFromPayload(payload) {
       const dependsOnIdx = p.depends_on_index !== undefined ? p.depends_on_index : (pIdx > 0 ? pIdx - 1 : null);
       const dependsOnPhaseId = dependsOnIdx !== null && createdPhaseIds[dependsOnIdx] ? createdPhaseIds[dependsOnIdx] : null;
 
-      const phaseStatus = pIdx === 0 ? 'draft' : 'queued';
+      const phaseStatus = 'draft';
       const phaseBranch = pIdx === 0 ? masterBranch : null;
 
       const [phaseRes] = await connection.query(
@@ -205,7 +206,7 @@ export async function createPhaseInEpicFromPayload(epicId, payload) {
     const { title, description, tasks } = payload || {};
     const [phaseRes] = await connection.query(
       'INSERT INTO phases (epic_id, depends_on_phase_id, title, description, main_branch, status) VALUES (?, ?, ?, ?, ?, ?)',
-      [epicId, parentPhaseId, title || 'Imported Phase', description || '', masterBranch, 'queued']
+      [epicId, parentPhaseId, title || 'Imported Phase', description || '', masterBranch, 'draft']
     );
     const phaseId = phaseRes.insertId;
 

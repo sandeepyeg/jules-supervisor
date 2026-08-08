@@ -46,7 +46,7 @@ test('Dependent Phases, Epics & Auto-Merge Suite', async (t) => {
 
     const phase2 = await queries.getPhase(result.phaseIds[1]);
     assert.strictEqual(phase2.title, 'Phase 2: Core Features');
-    assert.strictEqual(phase2.status, 'queued');
+    assert.strictEqual(phase2.status, 'draft');
     assert.strictEqual(phase2.depends_on_phase_id, result.phaseIds[0]);
   });
 

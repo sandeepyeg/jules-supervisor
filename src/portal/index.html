@@ -3384,26 +3384,17 @@
     }
 
     function copySampleJson() {
-      const sample = currentJsonImportTab === 'multi' ? {
-        "epic_title": "Public Website Rebuild 2026",
-        "master_feature_branch": "feature/epic-public-website-rebuild",
-        "target_base_branch": "develop",
-        "phases": [
-          { "title": "Phase 1: Foundation", "tasks": [{ "title": "Setup CSS Tokens", "description": "..." }] },
-          { "title": "Phase 2: Homepage", "depends_on_index": 0, "tasks": [{ "title": "Build Hero Section", "description": "..." }] }
-        ]
-      } : {
-        "title": "Phase 2 - Billing & Subscriptions",
-        "description": "Add Stripe integration and checkout flow.",
-        "mainBranch": "main",
+      const sample = {
+        "title": "Phase 1: Foundation & Design Tokens",
+        "description": "Set up design system tokens, CSS variables, and layout shell.",
         "tasks": [
-          { "title": "Add Stripe SDK wrapper", "description": "..." },
-          { "title": "Add webhook handler", "description": "...", "depends_on": [0] }
+          { "title": "Setup CSS Tokens", "description": "Create css variables and theme foundation" },
+          { "title": "Build Layout Shell", "description": "Implement navigation bar and main container", "depends_on": [0] }
         ]
       };
 
       navigator.clipboard.writeText(JSON.stringify(sample, null, 2));
-      alert('Sample JSON copied to clipboard!');
+      alert('Sample Phase JSON copied to clipboard!');
     }
 
     async function importJsonIntoForm() {

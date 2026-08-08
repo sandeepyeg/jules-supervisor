@@ -468,6 +468,13 @@ export async function reviewAndMerge(task) {
         console.log(`Merging PR #${task.pr_number} into ${phase.phase_branch}...`);
         await github.mergePR(task.pr_number, task.title, phase.phase_branch);
 
+        // Clean up any other open duplicate/abandoned PRs for this task
+        try {
+          await github.closeDuplicateTaskPRs(phase.phase_branch, task.pr_number, task.id, task.title, task.jules_session_id);
+        } catch (cleanupErr) {
+          console.warn(`Duplicate PR cleanup warning for task #${task.id}:`, cleanupErr.message);
+        }
+
         // Update task to merged status
         await updateTaskStatus(task.id, 'merged', { escalated: false });
 

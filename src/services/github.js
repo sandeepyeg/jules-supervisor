@@ -552,3 +552,36 @@ export async function closePR(prNumber, comment = null) {
   return true;
 }
 
+/**
+ * Scans open PRs targeting baseBranch and automatically closes any duplicate/abandoned PRs
+ * belonging to the same task or session.
+ */
+export async function closeDuplicateTaskPRs(baseBranch, currentPRNumber, taskId, taskTitle = '', sessionId = null) {
+  try {
+    const openPRs = await getPRsForBranch(baseBranch);
+    const sessionIdStr = sessionId ? String(sessionId).substring(0, 12) : '';
+    const cleanTitle = (taskTitle || '').trim().toLowerCase();
+
+    for (const pr of openPRs) {
+      if (Number(pr.number) === Number(currentPRNumber)) {
+        continue; // Skip the PR that was just merged
+      }
+
+      const headRef = (pr.head?.ref || '').toLowerCase();
+      const prTitle = (pr.title || '').trim().toLowerCase();
+
+      // Check if PR matches by session ID or title
+      const matchesSession = sessionIdStr && sessionIdStr.length >= 6 && headRef.includes(sessionIdStr.toLowerCase());
+      const matchesTitle = cleanTitle && cleanTitle.length >= 8 && prTitle.includes(cleanTitle);
+
+      if (matchesSession || matchesTitle) {
+        console.log(`Closing duplicate/abandoned PR #${pr.number} ("${pr.title}") for task #${taskId}...`);
+        const closeComment = `PR closed automatically by Jules Supervisor because task #${taskId} ("${taskTitle}") was completed and merged via PR #${currentPRNumber}.`;
+        await closePR(pr.number, closeComment);
+      }
+    }
+  } catch (err) {
+    console.warn(`Error scanning for duplicate PRs on branch ${baseBranch}:`, err.message);
+  }
+}
+

@@ -479,7 +479,7 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     // Verify Telegram alert contains no undefined values and matches expected format
     assert.ok(sentTelegramMessages.length > 0);
     const text = sentTelegramMessages[0].text;
-    assert.ok(text.includes('PR Hard-Blocked') || text.includes('Blocked by Supervisor'));
+    assert.ok(text.includes('PR Revision Requested') || text.includes('PR Hard-Blocked') || text.includes('Blocked by Supervisor'));
     assert.ok(!text.includes('undefined'));
     assert.ok(text.includes('Reason: PR diff size (71 chars) exceeds the maximum allowed limit of 10 chars.'));
     assert.ok(text.includes('Jules Instruction: Manual human review and merge required'));

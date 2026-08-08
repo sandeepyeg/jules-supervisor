@@ -150,7 +150,7 @@ export async function getQueuedReadyTasks(phaseId) {
     
     const allDependenciesMerged = dependsOn.every(depId => {
       const status = statusMap.get(depId);
-      return status === 'merged' || status === 'skipped';
+      return status === 'merged' || status === 'skipped' || status === 'unreviewed';
     });
     
     if (allDependenciesMerged) {

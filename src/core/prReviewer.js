@@ -376,8 +376,10 @@ export async function reviewAndMerge(task) {
 
     let rawDiff = await github.getPRDiff(task.pr_number);
     if (rawDiff.length > MAX_PR_DIFF_CHARS) {
-      console.warn(`PR diff length (${rawDiff.length}) exceeds MAX_PR_DIFF_CHARS (${MAX_PR_DIFF_CHARS}). Blocking and requesting human review.`);
-      await updateTaskStatus(task.id, 'pr_open');
+      console.warn(`PR diff length (${rawDiff.length}) exceeds MAX_PR_DIFF_CHARS (${MAX_PR_DIFF_CHARS}). Marking task as unreviewed so phase flow is not stopped.`);
+      await updateTaskStatus(task.id, 'unreviewed', {
+        last_review_feedback: `⚠️ Unreviewed (PR diff size ${rawDiff.length} chars exceeds maximum limit of ${MAX_PR_DIFF_CHARS} chars)`
+      });
       await sendReviewNotificationOnce(task, pr, 'diff-too-large', async () => {
         await telegram.sendPRBlockedNotification({
           taskTitle: task.title,
@@ -385,10 +387,10 @@ export async function reviewAndMerge(task) {
           riskLevel: 'high',
           blockingReason: `PR diff size (${rawDiff.length} chars) exceeds the maximum allowed limit of ${MAX_PR_DIFF_CHARS} chars.`,
           julesFix: 'Manual human review and merge required',
-          isHardStop: true
+          isHardStop: false
         });
       });
-      return { merged: false, approved: false, reason: 'PR diff size exceeds maximum allowed limit' };
+      return { merged: false, approved: false, unreviewed: true, reason: 'PR diff size exceeds maximum allowed limit' };
     }
 
     // 4. Reuse the cached AI verdict if this exact commit was already reviewed, otherwise

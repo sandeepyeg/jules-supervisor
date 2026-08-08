@@ -100,9 +100,9 @@ export async function runPollCycle(phaseId) {
     }
 
     // 5. Check for phase completion
-    const isComplete = tasks.length > 0 && tasks.every(t => t.status === 'merged' || t.status === 'skipped');
+    const isComplete = tasks.length > 0 && tasks.every(t => t.status === 'merged' || t.status === 'skipped' || t.status === 'unreviewed');
     if (isComplete) {
-      console.log(`All tasks in phase ${phaseId} merged/skipped! Marking phase complete.`);
+      console.log(`All tasks in phase ${phaseId} merged/skipped/unreviewed! Marking phase complete.`);
       await queries.updatePhaseStatus(phaseId, 'complete', { completed_at: new Date() });
       try {
         await telegram.sendPhaseCompleteNotification(phase.phase_branch, phase.title);

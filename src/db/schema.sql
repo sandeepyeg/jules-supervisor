@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   description TEXT NOT NULL,
   jules_notes TEXT,
   mode ENUM('ai_assisted','manual') DEFAULT 'ai_assisted',
-  status ENUM('queued','running','waiting_answer','pr_open','merged','failed','skipped') DEFAULT 'queued',
+  status ENUM('queued','running','waiting_answer','pr_open','merged','failed','skipped','unreviewed') DEFAULT 'queued',
   depends_on JSON COMMENT 'Array of task IDs this task waits for',
   sort_order INT DEFAULT 0,
   jules_session_id VARCHAR(255),

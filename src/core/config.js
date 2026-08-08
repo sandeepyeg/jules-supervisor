@@ -13,12 +13,12 @@ export let TASK_AUTO_MERGE_TO_PHASE_BRANCH = process.env.TASK_AUTO_MERGE_TO_PHAS
 export let NEVER_MERGE_TO_MAIN = process.env.NEVER_MERGE_TO_MAIN !== 'false'; // default true
 export let HUMAN_APPROVAL_REQUIRED_FOR_MAIN = process.env.HUMAN_APPROVAL_REQUIRED_FOR_MAIN !== 'false'; // default true
 export let BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH = process.env.BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH === 'true'; // default false
-export let CREATE_FINAL_DRAFT_PR = process.env.CREATE_FINAL_DRAFT_PR === 'true'; // default false
+export let CREATE_FINAL_DRAFT_PR = process.env.CREATE_FINAL_DRAFT_PR !== 'false'; // default true
 
 export let MAX_PR_DIFF_CHARS = parseInt(process.env.MAX_PR_DIFF_CHARS || '120000', 10);
 export let PR_REVIEW_CHUNK_CHARS = parseInt(process.env.PR_REVIEW_CHUNK_CHARS || '20000', 10);
 export let GEMINI_DAILY_FREE_CALL_BUDGET = parseInt(process.env.GEMINI_DAILY_FREE_CALL_BUDGET || '450', 10);
-export let MAX_AUTO_REVISION_ATTEMPTS = parseInt(process.env.MAX_AUTO_REVISION_ATTEMPTS || '2', 10);
+export let MAX_AUTO_REVISION_ATTEMPTS = parseInt(process.env.MAX_AUTO_REVISION_ATTEMPTS || '3', 10);
 export let MAX_CONFLICT_RETRIES = parseInt(process.env.MAX_CONFLICT_RETRIES || '2', 10);
 
 export let POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS || '30000', 10);
@@ -60,12 +60,12 @@ export function reloadConfig() {
   NEVER_MERGE_TO_MAIN = process.env.NEVER_MERGE_TO_MAIN !== 'false';
   HUMAN_APPROVAL_REQUIRED_FOR_MAIN = process.env.HUMAN_APPROVAL_REQUIRED_FOR_MAIN !== 'false';
   BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH = process.env.BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH === 'true';
-  CREATE_FINAL_DRAFT_PR = process.env.CREATE_FINAL_DRAFT_PR === 'true';
+  CREATE_FINAL_DRAFT_PR = process.env.CREATE_FINAL_DRAFT_PR !== 'false';
 
   MAX_PR_DIFF_CHARS = parseInt(process.env.MAX_PR_DIFF_CHARS || '120000', 10);
   PR_REVIEW_CHUNK_CHARS = parseInt(process.env.PR_REVIEW_CHUNK_CHARS || '20000', 10);
   GEMINI_DAILY_FREE_CALL_BUDGET = parseInt(process.env.GEMINI_DAILY_FREE_CALL_BUDGET || '450', 10);
-  MAX_AUTO_REVISION_ATTEMPTS = parseInt(process.env.MAX_AUTO_REVISION_ATTEMPTS || '2', 10);
+  MAX_AUTO_REVISION_ATTEMPTS = parseInt(process.env.MAX_AUTO_REVISION_ATTEMPTS || '3', 10);
   MAX_CONFLICT_RETRIES = parseInt(process.env.MAX_CONFLICT_RETRIES || '2', 10);
 
   POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS || '30000', 10);

@@ -138,6 +138,10 @@ export async function requestChangesOnPR(prNumber, body) {
 
   if (!response.ok) {
     const errText = await response.text();
+    if (errText.includes('Can not request changes on your own pull request')) {
+      console.log(`PR #${prNumber} is owned by the authenticated account. Posting review feedback as PR comment...`);
+      return addPRComment(prNumber, body);
+    }
     throw new Error(`Failed to request changes on PR #${prNumber}: ${response.statusText} - ${errText}`);
   }
 

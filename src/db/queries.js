@@ -80,6 +80,10 @@ export async function updateTaskStatus(taskId, status, extra = {}) {
     fields.push('last_review_verdict = ?');
     values.push(extra.last_review_verdict);
   }
+  if (extra.last_review_feedback !== undefined) {
+    fields.push('last_review_feedback = ?');
+    values.push(extra.last_review_feedback);
+  }
   if (extra.pr_revision_count !== undefined) {
     fields.push('pr_revision_count = ?');
     values.push(extra.pr_revision_count);
@@ -241,6 +245,7 @@ export async function resetTaskForConflictRework(taskId, nextRetryCount) {
     pr_revision_count: 0,
     last_reviewed_sha: null,
     last_review_verdict: null,
+    last_review_feedback: null,
     escalated: false,
     retry_count: nextRetryCount
   });

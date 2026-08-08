@@ -3,11 +3,7 @@ import * as sessionHandler from './sessionHandler.js';
 import * as taskManager from './taskManager.js';
 import * as telegram from '../services/telegram.js';
 import * as github from '../services/github.js';
-import {
-  POLL_INTERVAL_MS,
-  TELEGRAM_REMINDER_MS,
-  CREATE_FINAL_DRAFT_PR
-} from './config.js';
+import * as config from './config.js';
 
 // Keep track of active interval references by phase ID so we can stop them if needed
 const activePollers = new Map();
@@ -108,9 +104,13 @@ export async function runPollCycle(phaseId) {
     if (isComplete) {
       console.log(`All tasks in phase ${phaseId} merged/skipped! Marking phase complete.`);
       await queries.updatePhaseStatus(phaseId, 'complete', { completed_at: new Date() });
-      await telegram.sendPhaseCompleteNotification(phase.phase_branch, phase.title);
+      try {
+        await telegram.sendPhaseCompleteNotification(phase.phase_branch, phase.title);
+      } catch (tgErr) {
+        console.warn('Failed to send Telegram phase complete notification:', tgErr.message);
+      }
 
-      if (CREATE_FINAL_DRAFT_PR) {
+      if (config.CREATE_FINAL_DRAFT_PR) {
         try {
           console.log(`Creating final draft PR for branch ${phase.phase_branch} into ${phase.main_branch}...`);
           await github.createDraftPR(
@@ -144,15 +144,12 @@ export function startPoller(phaseId) {
     return activePollers.get(phaseId);
   }
 
-  console.log(`Starting supervisor poller for phase ID: ${phaseId} (polling every ${POLL_INTERVAL_MS}ms)`);
-
-  const interval = setInterval(async () => {
-    try {
-      await runPollCycle(phaseId);
-    } catch (err) {
-      console.error('Supervisor poller execution error:', err);
-    }
-  }, POLL_INTERVAL_MS);
+  console.log(`Starting supervisor poller for phase ID: ${phaseId} (polling every ${config.POLL_INTERVAL_MS}ms)`);
+  const interval = setInterval(() => {
+    runPollCycle(phaseId).catch(err => {
+      console.error(`Unhandled error in poller cycle for phase ${phaseId}:`, err);
+    });
+  }, config.POLL_INTERVAL_MS);
 
   activePollers.set(phaseId, interval);
   void runPollCycle(phaseId).catch(err => {
@@ -165,7 +162,7 @@ export function startPoller(phaseId) {
  * Sends reminders to the developer for pending Telegram questions that are overdue.
  */
 async function sendReminders() {
-  const pending = await queries.getUnresolvedPendingOlderThan(TELEGRAM_REMINDER_MS);
+  const pending = await queries.getUnresolvedPendingOlderThan(config.TELEGRAM_REMINDER_MS);
   
   for (const p of pending) {
     try {

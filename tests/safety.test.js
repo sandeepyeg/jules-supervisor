@@ -867,6 +867,8 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
   });
 
   await t.test('bounded revision loop: posts GitHub feedback each round, then escalates to a human after the cap', async () => {
+    process.env.MAX_AUTO_REVISION_ATTEMPTS = '2';
+    reloadConfig();
     mockPRBase = 'feature/phase-10';
     mockPRMergeable = true;
     mockPRState = 'open';
@@ -945,6 +947,8 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     assert.strictEqual(julesMessages.length, 0, 'an approved review should never message Jules');
     updated = await queries.getTask(task1Id);
     assert.strictEqual(updated.escalated, false, 'escalated flag must clear once the PR is approved again');
+    delete process.env.MAX_AUTO_REVISION_ATTEMPTS;
+    reloadConfig();
   });
 
   await t.test('advisory notes never block merge and are never sent to Jules', async () => {
@@ -1160,7 +1164,7 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     // The bounded-revision-loop test's round 4 fixes and un-escalates task1, and every
     // approved-branch path in prReviewer explicitly clears escalated — so by now it's 0.
     assert.strictEqual(responseBody.escalatedTasksCount, 0);
-    assert.strictEqual(responseBody.maxAutoRevisionAttempts, 2);
+    assert.strictEqual(responseBody.maxAutoRevisionAttempts, 3);
     assert.ok(responseBody.pollers);
   });
 });

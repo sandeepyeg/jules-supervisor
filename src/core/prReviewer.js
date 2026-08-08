@@ -102,6 +102,31 @@ async function runAiDiffReview(task, phase, filenames, rawDiff) {
   const followUpInstructions = [];
   const advisoryNotes = [];
 
+  const revisionCount = task.pr_revision_count || 0;
+  const isFinalAttemptRound = revisionCount >= MAX_AUTO_REVISION_ATTEMPTS - 1;
+
+  let revisionHistoryBlock = '';
+  if (revisionCount > 0 && task.last_review_feedback) {
+    revisionHistoryBlock = `
+## REVISION HISTORY (Round ${revisionCount + 1} of ${MAX_AUTO_REVISION_ATTEMPTS})
+In the previous review round, the coding agent (Jules) was asked to fix:
+"${task.last_review_feedback}"
+
+CRITICAL REVIEW RULES FOR REVISIONS:
+1. Verify if Jules addressed the specific issues listed above in this updated diff.
+2. DO NOT repeat issues that have already been resolved or addressed by Jules.
+3. DO NOT invent new minor style or nitpick complaints if the previous feedback was addressed and the code works.
+${isFinalAttemptRound ? '4. THIS IS THE FINAL AUTOMATED REVISION ROUND. If code functionality is complete and no severe security flaws or fatal syntax bugs exist, APPROVE the PR.' : '4. Evaluate incremental progress pragmatically.'}
+`;
+  } else {
+    revisionHistoryBlock = `
+## REVIEW PHILOSOPHY
+Focus on task intent and functional correctness. Distinguish between critical blockers vs minor style.
+- Mark as "blockingIssues" / "missingRequirements" ONLY if there are true bugs, security vulnerabilities, broken logic, or missing core task requirements.
+- Mark style suggestions, refactor preferences, or minor hints as "advisoryNotes" (non-blocking).
+`;
+  }
+
   for (let idx = 0; idx < chunks.length; idx++) {
     const chunk = chunks[idx];
 
@@ -109,8 +134,8 @@ async function runAiDiffReview(task, phase, filenames, rawDiff) {
     // it on every chunk would multiply its token cost for no benefit. Later chunks get a
     // short recap of findings so far instead, so the model doesn't re-flag duplicates.
     const contextBlock = idx === 0
-      ? `## Phase Goals\n${phase.description || 'None provided.'}\n\n## Current Task\nTitle: ${task.title}\nDescription: ${task.description}\n\n${PROJECT_CONVENTIONS}`
-      : `## Current Task\nTitle: ${task.title}\n(Full phase goals and task description were given with chunk 1.)\n\nFindings already recorded from earlier chunks of this same diff — do not repeat them, but do cross-reference (e.g. a fix in this chunk may resolve a requirement flagged missing earlier):\nMissing requirements so far: ${missingRequirements.join('; ') || 'none yet'}\nBlocking issues so far: ${blockingIssues.join('; ') || 'none yet'}`;
+      ? `## Phase Goals\nTitle: ${phase.title || 'Current Phase'}\nDescription: ${phase.description || 'None provided.'}\n\n## Task Intent & Requirements\nTitle: ${task.title}\nDescription: ${task.description}\n\n${PROJECT_CONVENTIONS}\n${revisionHistoryBlock}`
+      : `## Task Intent & Requirements\nTitle: ${task.title}\n(Full phase goals, task description, and revision history were provided in chunk 1.)\n\nFindings recorded so far from earlier chunks of this diff:\nMissing requirements so far: ${missingRequirements.join('; ') || 'none yet'}\nBlocking issues so far: ${blockingIssues.join('; ') || 'none yet'}`;
 
     const prompt = `You are reviewing a code change.
 ${contextBlock}
@@ -545,7 +570,12 @@ Summary: ${summaryText}${followUpInstructions.length ? `\n\nSuggested fix:\n${fo
             isHardStop: false
           });
 
-          await updateTaskStatus(task.id, 'running', { pr_revision_count: nextRevisionCount });
+          const feedbackItems = blockingIssues.concat(missingRequirements);
+          const feedbackSummary = feedbackItems.join('; ') || 'Requested revisions for task criteria';
+          await updateTaskStatus(task.id, 'running', {
+            pr_revision_count: nextRevisionCount,
+            last_review_feedback: feedbackSummary
+          });
         });
 
         return { merged: false, reason: blockingText };

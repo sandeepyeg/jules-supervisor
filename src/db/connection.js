@@ -61,6 +61,7 @@ export function mockQuery(sql, params = []) {
       newRecord.retry_count = newRecord.retry_count ?? 0;
       newRecord.last_reviewed_sha = newRecord.last_reviewed_sha ?? null;
       newRecord.last_review_verdict = newRecord.last_review_verdict ?? null;
+      newRecord.last_review_feedback = newRecord.last_review_feedback ?? null;
       newRecord.pr_revision_count = newRecord.pr_revision_count ?? 0;
       newRecord.nudge_sent = newRecord.nudge_sent ?? false;
       newRecord.escalated = newRecord.escalated ?? false;

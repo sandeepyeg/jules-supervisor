@@ -7,6 +7,7 @@ import {
   TASK_AUTO_MERGE_TO_PHASE_BRANCH,
   NEVER_MERGE_TO_MAIN,
   BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH,
+  AUTO_MERGE_WITH_NOTES,
   MAX_PR_DIFF_CHARS,
   PR_REVIEW_CHUNK_CHARS,
   MAX_AUTO_REVISION_ATTEMPTS,
@@ -631,35 +632,72 @@ Summary: ${summaryText}${followUpInstructions.length ? `\n\nSuggested fix:\n${fo
 
         return { merged: false, reason: blockingText };
       } else {
-        console.log(`PR #${task.pr_number} has exhausted ${MAX_AUTO_REVISION_ATTEMPTS} auto-revision attempts. Escalating to human, not messaging Jules again.`);
+        const isTargetingPhaseBranch = baseBranch === phase.phase_branch && baseBranch !== 'main';
+        
+        if (AUTO_MERGE_WITH_NOTES && isTargetingPhaseBranch) {
+          console.log(`PR #${task.pr_number} reached auto-revision limit. Merging into phase branch "${phase.phase_branch}" with notes to unblock dependent tasks.`);
 
-        const escalationComment = `**Automated review limit reached (${MAX_AUTO_REVISION_ATTEMPTS}/${MAX_AUTO_REVISION_ATTEMPTS} revision rounds)** — issues remain and Jules will not be messaged again automatically for this PR. A human needs to take over.
+          const autoMergeComment = `**Supervisor Notice: Auto-merged with notes**
+Automated review limit (${MAX_AUTO_REVISION_ATTEMPTS}/${MAX_AUTO_REVISION_ATTEMPTS} rounds) reached. Merging into phase branch \`${phase.phase_branch}\` with reviewer notes to keep phase workflow moving.
+
+Reviewer: ${reviewerSource || 'AI Reviewer'}
+Review Notes / Follow-up Items:
+${blockingIssues.concat(missingRequirements).map(issue => `- ${issue}`).join('\n') || '- See summary below.'}
+
+Summary: ${summaryText}`;
+
+          try { await github.addPRComment(task.pr_number, autoMergeComment); } catch (_) {}
+          try { await github.approvePR(task.pr_number); } catch (_) {}
+
+          console.log(`Merging PR #${task.pr_number} into ${phase.phase_branch}...`);
+          await github.mergePR(task.pr_number, task.title, phase.phase_branch);
+
+          try {
+            await github.closeDuplicateTaskPRs(phase.phase_branch, task.pr_number, task.id, task.title, task.jules_session_id);
+          } catch (_) {}
+
+          await updateTaskStatus(task.id, 'merged', { escalated: false, last_review_feedback: `Merged with notes: ${blockingText}` });
+
+          try {
+            const readyTasks = await getQueuedReadyTasks(task.phase_id);
+            const nextTitle = readyTasks[0]?.title;
+            await telegram.sendNotification(`ℹ️ Task #${task.id} ("${task.title}") auto-merged into phase branch \`${phase.phase_branch}\` with notes.\n\nNotes: ${blockingText}\n\nDependent tasks unblocked! Next task: ${nextTitle || 'None'}`);
+          } catch (tgErr) {
+            console.warn('Failed to send Telegram notification:', tgErr.message);
+          }
+
+          return { merged: true, mergedWithNotes: true };
+        } else {
+          console.log(`PR #${task.pr_number} has exhausted ${MAX_AUTO_REVISION_ATTEMPTS} auto-revision attempts. Escalating to human, not messaging Jules again.`);
+
+          const escalationComment = `**Automated review limit reached (${MAX_AUTO_REVISION_ATTEMPTS}/${MAX_AUTO_REVISION_ATTEMPTS} revision rounds)** — issues remain and Jules will not be messaged again automatically for this PR. A human needs to take over.
 
 Reviewer: ${reviewerSource || 'AI Reviewer'}
 
 Outstanding blocking issues:
 ${blockingText || 'See review summary in the supervisor QA log.'}`;
 
-        await sendReviewNotificationOnce(task, pr, 'revision-limit-reached', async () => {
-          try {
-            await github.addPRComment(task.pr_number, escalationComment);
-          } catch (commentErr) {
-            console.warn(`Failed to post escalation comment on PR #${task.pr_number}:`, commentErr.message);
-          }
+          await sendReviewNotificationOnce(task, pr, 'revision-limit-reached', async () => {
+            try {
+              await github.addPRComment(task.pr_number, escalationComment);
+            } catch (commentErr) {
+              console.warn(`Failed to post escalation comment on PR #${task.pr_number}:`, commentErr.message);
+            }
 
-          await telegram.sendPRBlockedNotification({
-            taskTitle: task.title,
-            prUrl: pr.html_url || task.pr_url,
-            riskLevel: finalRiskLevel,
-            blockingReason: `Auto-review limit reached (${MAX_AUTO_REVISION_ATTEMPTS}/${MAX_AUTO_REVISION_ATTEMPTS}) — ${blockingText || 'issues remain'}`,
-            julesFix: 'Please review and fix this manually — Jules will not be auto-messaged again for this PR.',
-            reviewerSource: reviewerSource,
-            isHardStop: true
+            await telegram.sendPRBlockedNotification({
+              taskTitle: task.title,
+              prUrl: pr.html_url || task.pr_url,
+              riskLevel: finalRiskLevel,
+              blockingReason: `Auto-review limit reached (${MAX_AUTO_REVISION_ATTEMPTS}/${MAX_AUTO_REVISION_ATTEMPTS}) — ${blockingText || 'issues remain'}`,
+              julesFix: 'Please review and fix this manually — Jules will not be auto-messaged again for this PR.',
+              reviewerSource: reviewerSource,
+              isHardStop: true
+            });
           });
-        });
 
-        await updateTaskStatus(task.id, 'pr_open', { escalated: true });
-        return { merged: false, reason: blockingText, escalated: true };
+          await updateTaskStatus(task.id, 'pr_open', { escalated: true });
+          return { merged: false, reason: blockingText, escalated: true };
+        }
       }
     }
   } catch (error) {

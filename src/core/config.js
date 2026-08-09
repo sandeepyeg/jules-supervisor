@@ -13,6 +13,7 @@ export let TASK_AUTO_MERGE_TO_PHASE_BRANCH = process.env.TASK_AUTO_MERGE_TO_PHAS
 export let NEVER_MERGE_TO_MAIN = process.env.NEVER_MERGE_TO_MAIN !== 'false'; // default true
 export let HUMAN_APPROVAL_REQUIRED_FOR_MAIN = process.env.HUMAN_APPROVAL_REQUIRED_FOR_MAIN !== 'false'; // default true
 export let BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH = process.env.BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH === 'true'; // default false
+export let AUTO_MERGE_WITH_NOTES = process.env.AUTO_MERGE_WITH_NOTES !== 'false'; // default true: merge PRs into phase branch with notes rather than holding dependent tasks
 export let CREATE_FINAL_DRAFT_PR = process.env.CREATE_FINAL_DRAFT_PR !== 'false'; // default true
 
 export let MAX_PR_DIFF_CHARS = parseInt(process.env.MAX_PR_DIFF_CHARS || '120000', 10);
@@ -60,6 +61,7 @@ export function reloadConfig() {
   NEVER_MERGE_TO_MAIN = process.env.NEVER_MERGE_TO_MAIN !== 'false';
   HUMAN_APPROVAL_REQUIRED_FOR_MAIN = process.env.HUMAN_APPROVAL_REQUIRED_FOR_MAIN !== 'false';
   BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH = process.env.BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH === 'true';
+  AUTO_MERGE_WITH_NOTES = process.env.AUTO_MERGE_WITH_NOTES !== 'false';
   CREATE_FINAL_DRAFT_PR = process.env.CREATE_FINAL_DRAFT_PR !== 'false';
 
   MAX_PR_DIFF_CHARS = parseInt(process.env.MAX_PR_DIFF_CHARS || '120000', 10);

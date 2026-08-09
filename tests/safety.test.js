@@ -897,6 +897,7 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
 
   await t.test('bounded revision loop: posts GitHub feedback each round, then escalates to a human after the cap', async () => {
     process.env.MAX_AUTO_REVISION_ATTEMPTS = '2';
+    process.env.AUTO_MERGE_WITH_NOTES = 'false';
     reloadConfig();
     mockPRBase = 'feature/phase-10';
     mockPRMergeable = true;

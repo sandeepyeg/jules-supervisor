@@ -93,26 +93,27 @@ export async function runPollCycle(phaseId) {
       console.error('Error sending Telegram reminders:', error);
     }
 
-    // 4. Check for failed tasks
+    // 4. Check for failed tasks and notify without freezing the entire phase
     const tasks = await queries.getTasksForPhase(phaseId);
-    const failedTask = tasks.find(t => t.status === 'failed');
-    if (failedTask) {
-      console.log(`Task "${failedTask.title}" failed. Marking phase ${phaseId} as failed.`);
-      await queries.updatePhaseStatus(phaseId, 'failed', { completed_at: new Date() });
-      await telegram.sendNotification(`Phase failed: "${phase.title}" was stopped because task "${failedTask.title}" failed.`);
-      stopPoller(phaseId);
-      return { failed: true };
-    }
+    const hasUnfinishedTasks = tasks.some(t => t.status === 'queued' || t.status === 'running' || t.status === 'waiting_answer' || t.status === 'pr_open');
 
-    // 5. Check for phase completion
-    const isComplete = tasks.length > 0 && tasks.every(t => t.status === 'merged' || t.status === 'skipped' || t.status === 'unreviewed');
+    // 5. Check for phase completion (all tasks finished processing)
+    const isComplete = tasks.length > 0 && tasks.every(t => t.status === 'merged' || t.status === 'skipped' || t.status === 'unreviewed' || t.status === 'failed');
     if (isComplete) {
-      console.log(`All tasks in phase ${phaseId} merged/skipped/unreviewed! Marking phase complete.`);
-      await queries.updatePhaseStatus(phaseId, 'complete', { completed_at: new Date() });
+      const hasFailures = tasks.some(t => t.status === 'failed');
+      const finalStatus = hasFailures ? 'failed' : 'complete';
+
+      console.log(`All tasks in phase ${phaseId} completed processing (Status: ${finalStatus}).`);
+      await queries.updatePhaseStatus(phaseId, finalStatus, { completed_at: new Date() });
+      
       try {
-        await telegram.sendPhaseCompleteNotification(phase.phase_branch, phase.title);
+        if (finalStatus === 'complete') {
+          await telegram.sendPhaseCompleteNotification(phase.phase_branch, phase.title);
+        } else {
+          await telegram.sendNotification(`⚠️ Phase #${phaseId} ("${phase.title}") finished with some failed tasks. Please review in dashboard.`);
+        }
       } catch (tgErr) {
-        console.warn('Failed to send Telegram phase complete notification:', tgErr.message);
+        console.warn('Failed to send Telegram phase completion notification:', tgErr.message);
       }
 
       if (config.CREATE_FINAL_DRAFT_PR) {

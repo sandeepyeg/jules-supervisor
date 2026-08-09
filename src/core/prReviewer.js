@@ -491,6 +491,19 @@ export async function reviewAndMerge(task) {
     }
 
     // 7. Actions based on approval and safety policies
+    const normalizeStringList = (list) => {
+      if (!Array.isArray(list)) return [];
+      return list.map(item => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object') return item.description || item.message || JSON.stringify(item);
+        return String(item);
+      });
+    };
+
+    blockingIssues = normalizeStringList(blockingIssues);
+    missingRequirements = normalizeStringList(missingRequirements);
+    advisoryNotes = normalizeStringList(advisoryNotes);
+
     const summaryText = summaries.join(' ');
     const blockingText = blockingIssues.concat(missingRequirements).join(', ');
 

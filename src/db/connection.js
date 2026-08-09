@@ -62,6 +62,7 @@ export function mockQuery(sql, params = []) {
       newRecord.depends_on = newRecord.depends_on ?? null;
       newRecord.sort_order = newRecord.sort_order ?? 0;
       newRecord.jules_session_id = newRecord.jules_session_id ?? null;
+      newRecord.jules_launched_at = newRecord.jules_launched_at ?? null;
       newRecord.pr_url = newRecord.pr_url ?? null;
       newRecord.pr_number = newRecord.pr_number ?? null;
       newRecord.last_activity_id = newRecord.last_activity_id ?? null;
@@ -109,23 +110,28 @@ export function mockQuery(sql, params = []) {
     }
     if (sqlLower.includes('jules_session_id is not null')) {
       const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
-      const countLastDayOnly = sqlLower.includes('created_at >= now() - interval 1 day');
+      const countLastDayOnly = sqlLower.includes('now() - interval 1 day');
       const cnt = inMemoryDb.tasks.filter(t => {
         if (!t.jules_session_id) return false;
         if (!countLastDayOnly) return true;
-        return new Date(t.created_at).getTime() >= oneDayAgo;
+        const launchTime = t.jules_launched_at || t.updated_at || t.created_at;
+        return new Date(launchTime).getTime() >= oneDayAgo;
       }).length;
       return [[{ count: cnt }]];
     }
     return [[{ count: inMemoryDb.tasks.length }]];
   }
 
-  // SELECT MIN(created_at) as oldestCreatedAt FROM tasks WHERE jules_session_id IS NOT NULL AND created_at >= NOW() - INTERVAL 1 DAY
-  if (sqlLower.includes('min(created_at) as oldestcreatedat') && sqlLower.includes('from tasks')) {
+  // SELECT MIN(COALESCE(...)) as oldestCreatedAt FROM tasks WHERE jules_session_id IS NOT NULL ...
+  if (sqlLower.includes('oldestcreatedat') && sqlLower.includes('from tasks')) {
     const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
     const timestamps = inMemoryDb.tasks
-      .filter(t => t.jules_session_id && new Date(t.created_at).getTime() >= oneDayAgo)
-      .map(t => new Date(t.created_at).getTime());
+      .filter(t => {
+        if (!t.jules_session_id) return false;
+        const launchTime = t.jules_launched_at || t.updated_at || t.created_at;
+        return new Date(launchTime).getTime() >= oneDayAgo;
+      })
+      .map(t => new Date(t.jules_launched_at || t.updated_at || t.created_at).getTime());
     return [[{ oldestCreatedAt: timestamps.length ? new Date(Math.min(...timestamps)) : null }]];
   }
 

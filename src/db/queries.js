@@ -123,6 +123,10 @@ export async function updateTaskStatus(taskId, status, extra = {}) {
     fields.push('jules_session_id = ?');
     values.push(extra.jules_session_id);
   }
+  if (extra.jules_launched_at !== undefined) {
+    fields.push('jules_launched_at = ?');
+    values.push(extra.jules_launched_at);
+  }
   if (extra.pr_url !== undefined) {
     fields.push('pr_url = ?');
     values.push(extra.pr_url);
@@ -193,7 +197,7 @@ export async function getGlobalRunningTaskCount() {
  */
 export async function getDailyLaunchedTaskCount() {
   const [rows] = await pool.query(
-    "SELECT COUNT(*) as count FROM tasks WHERE jules_session_id IS NOT NULL AND created_at >= NOW() - INTERVAL 1 DAY"
+    "SELECT COUNT(*) as count FROM tasks WHERE jules_session_id IS NOT NULL AND COALESCE(jules_launched_at, updated_at, created_at) >= NOW() - INTERVAL 1 DAY"
   );
   return rows[0] ? parseInt(rows[0].count, 10) : 0;
 }
@@ -204,7 +208,7 @@ export async function getDailyLaunchedTaskCount() {
  */
 export async function getOldestDailyLaunchCreatedAt() {
   const [rows] = await pool.query(
-    "SELECT MIN(created_at) as oldestCreatedAt FROM tasks WHERE jules_session_id IS NOT NULL AND created_at >= NOW() - INTERVAL 1 DAY"
+    "SELECT MIN(COALESCE(jules_launched_at, updated_at, created_at)) as oldestCreatedAt FROM tasks WHERE jules_session_id IS NOT NULL AND COALESCE(jules_launched_at, updated_at, created_at) >= NOW() - INTERVAL 1 DAY"
   );
   return rows[0]?.oldestCreatedAt || null;
 }

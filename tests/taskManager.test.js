@@ -40,6 +40,7 @@ test('Task launch throttling keeps phases draining over time', async (t) => {
         depends_on: JSON.stringify([]),
         jules_session_id: `historical-${i}`,
         created_at: new Date(Date.now() - 60 * 60 * 1000),
+        jules_launched_at: new Date(Date.now() - 60 * 60 * 1000),
         updated_at: new Date()
       });
     }
@@ -63,6 +64,7 @@ test('Task launch throttling keeps phases draining over time', async (t) => {
         sort_order: i,
         depends_on: JSON.stringify([]),
         jules_session_id: null,
+        jules_launched_at: null,
         created_at: new Date(),
         updated_at: new Date()
       });
@@ -96,6 +98,61 @@ test('Task launch throttling keeps phases draining over time', async (t) => {
     const phaseTasks = inMemoryDb.tasks.filter(t => t.phase_id === phaseId);
     assert.strictEqual(phaseTasks.filter(t => t.status === 'running').length, 1);
     assert.strictEqual(phaseTasks.filter(t => t.status === 'queued').length, 2);
+    assert.strictEqual(getRateLimitStatus().isDailyLimited, true);
+  });
+
+  await t.test('rolling 24h limit uses Jules launch time, not task import time', async () => {
+    const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+
+    for (let i = 0; i < 100; i++) {
+      inMemoryDb.tasks.push({
+        id: 30000 + i,
+        phase_id: 998,
+        title: `Imported Earlier Session ${i}`,
+        description: '',
+        status: 'merged',
+        sort_order: i,
+        depends_on: JSON.stringify([]),
+        jules_session_id: `imported-earlier-${i}`,
+        created_at: twoDaysAgo,
+        jules_launched_at: oneHourAgo,
+        updated_at: oneHourAgo
+      });
+    }
+
+    const phaseId = await createReadyPhase(1);
+    const started = await startReadyTasks(phaseId, 'feature/launch-throttle');
+
+    assert.strictEqual(started, 0);
+    assert.strictEqual(getRateLimitStatus().isDailyLimited, true);
+  });
+
+  await t.test('Jules FAILED_PRECONDITION launch response holds queued tasks without failing them', async () => {
+    globalThis.__mockFetch = async (url, options = {}) => {
+      if (String(url).includes('/sessions') && options.method === 'POST') {
+        return {
+          ok: false,
+          statusText: 'Bad Request',
+          text: async () => JSON.stringify({
+            error: {
+              code: 400,
+              message: 'Precondition check failed.',
+              status: 'FAILED_PRECONDITION'
+            }
+          })
+        };
+      }
+      return { ok: true, json: async () => ({}), text: async () => '' };
+    };
+
+    const phaseId = await createReadyPhase(2);
+    const started = await startReadyTasks(phaseId, 'feature/launch-throttle');
+    const phaseTasks = inMemoryDb.tasks.filter(t => t.phase_id === phaseId);
+
+    assert.strictEqual(started, 0);
+    assert.strictEqual(phaseTasks.filter(t => t.status === 'queued').length, 2);
+    assert.strictEqual(phaseTasks.filter(t => t.jules_session_id).length, 0);
     assert.strictEqual(getRateLimitStatus().isDailyLimited, true);
   });
 });

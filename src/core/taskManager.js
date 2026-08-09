@@ -35,6 +35,8 @@ function isRateLimitError(error) {
     || message.includes('quota')
     || message.includes('rate limit')
     || message.includes('too many requests')
+    || message.includes('failed_precondition')
+    || message.includes('precondition check failed')
   );
 }
 
@@ -155,7 +157,8 @@ Proceed directly to implementation and code execution. Do NOT ask clarifying que
       
       // Update task status and session ID in database
       await updateTaskStatus(task.id, 'running', {
-        jules_session_id: sessionId
+        jules_session_id: sessionId,
+        jules_launched_at: new Date()
       });
       
       // Send Telegram notification
@@ -169,9 +172,9 @@ Proceed directly to implementation and code execution. Do NOT ask clarifying que
       rateLimitBackoffMs = 5 * 60 * 1000;
     } catch (error) {
       if (isRateLimitError(error)) {
-        rateLimitBackoffUntil = Date.now() + rateLimitBackoffMs;
-        const retryMinutes = Math.ceil(rateLimitBackoffMs / 60000);
-        rateLimitBackoffMs = Math.min(rateLimitBackoffMs * 2, 60 * 60 * 1000);
+        const retryAt = await setDailyLimitBackoff();
+        const retryMinutes = Math.ceil((retryAt - Date.now()) / 60000);
+        rateLimitBackoffMs = 5 * 60 * 1000;
         console.warn(`[TaskManager] Jules launch quota/rate limit hit on task #${task.id}. Holding queued tasks for about ${retryMinutes} minute(s), then retrying automatically.`);
         
         try {

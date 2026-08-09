@@ -130,7 +130,7 @@ test('startPhase — the action /import on Telegram now triggers automatically',
     );
   });
 
-  await t.test('daily launch count only includes sessions created in the last 24 hours', async () => {
+  await t.test('daily launch count only includes sessions launched in the last 24 hours', async () => {
     await pool.query(
       `INSERT INTO tasks (phase_id, title, description, status, jules_session_id)
        VALUES (?, ?, ?, ?, ?)`,
@@ -144,6 +144,8 @@ test('startPhase — the action /import on Telegram now triggers automatically',
 
     const oldTask = inMemoryDb.tasks.find(task => task.jules_session_id === 'old-session');
     oldTask.created_at = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    oldTask.jules_launched_at = new Date(Date.now() - 48 * 60 * 60 * 1000);
+    oldTask.updated_at = oldTask.jules_launched_at;
 
     assert.strictEqual(await queries.getDailyLaunchedTaskCount(), 1);
   });

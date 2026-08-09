@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   depends_on JSON COMMENT 'Array of task IDs this task waits for',
   sort_order INT DEFAULT 0,
   jules_session_id VARCHAR(255),
+  jules_launched_at TIMESTAMP NULL,
   pr_url VARCHAR(500),
   pr_number INT,
   last_activity_id VARCHAR(255) COMMENT 'Last Jules activity we responded to',
@@ -49,6 +50,7 @@ CREATE TABLE IF NOT EXISTS tasks (
 ALTER TABLE tasks ADD COLUMN last_reviewed_sha VARCHAR(64) NULL;
 ALTER TABLE tasks ADD COLUMN last_review_verdict TEXT NULL;
 ALTER TABLE tasks ADD COLUMN last_review_feedback TEXT NULL;
+ALTER TABLE tasks ADD COLUMN jules_launched_at TIMESTAMP NULL;
 ALTER TABLE tasks ADD COLUMN pr_revision_count INT DEFAULT 0;
 ALTER TABLE tasks ADD COLUMN nudge_sent TINYINT(1) DEFAULT 0;
 ALTER TABLE tasks ADD COLUMN escalated TINYINT(1) DEFAULT 0;

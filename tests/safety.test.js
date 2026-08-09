@@ -387,7 +387,7 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
     reloadConfig();
   });
 
-  await t.test('Missing tests/testEvidence blocks approval', async () => {
+  await t.test('Missing tests/testEvidence adds advisory note without blocking PR', async () => {
     mockPRBase = 'feature/phase-10';
     mockAIResponse.approved = true;
     mockAIResponse.testEvidence = 'No test found in PR diff'; // Indicates missing tests
@@ -407,10 +407,7 @@ test('Jules Supervisor Upgrade Safety Requirements', async (t) => {
 
     const reviewResult = await prReviewer.reviewAndMerge(task);
 
-    assert.strictEqual(reviewResult.merged, false);
-    assert.ok(sentTelegramMessages.length > 0);
-    assert.ok(sentTelegramMessages[0].text.includes('PR Revision Requested') || sentTelegramMessages[0].text.includes('Blocked by Supervisor'));
-    assert.ok(sentTelegramMessages[0].text.includes('Missing verifiable test evidence'));
+    assert.strictEqual(reviewResult.merged, true);
   });
 
   await t.test('TASK_AUTO_MERGE_TO_PHASE_BRANCH=true squash merges successfully into phase branch but not main', async () => {

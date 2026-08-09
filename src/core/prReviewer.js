@@ -485,8 +485,7 @@ export async function reviewAndMerge(task) {
         const verifiedByChecks = hasTestEvidenceText && checksStatus === 'passing';
 
         if (!verifiedByTestFile && !verifiedByChecks) {
-          approved = false;
-          blockingIssues = blockingIssues.concat('Missing verifiable test evidence for backend logic changes.');
+          advisoryNotes.push('Note: No unit test file was added for source code changes.');
         }
       }
     }

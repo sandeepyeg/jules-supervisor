@@ -1118,12 +1118,15 @@
           </button>
         </div>
 
-        <div id="pause-resume-area" style="display: none; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-bottom: 1.5rem;">
+        <div id="pause-resume-area" style="display: none; grid-template-columns: 1fr 1fr 1fr; gap: 0.6rem; margin-bottom: 1.5rem;">
           <button class="btn btn-secondary" id="pause-phase-btn" onclick="pausePhase()" style="font-size: 0.85rem; padding: 0.65rem;">
             ⏸ Pause Supervisor
           </button>
-          <button class="btn" id="resume-phase-btn" onclick="resumePhase()" style="font-size: 0.85rem; padding: 0.65rem;">
+          <button class="btn btn-secondary" id="resume-phase-btn" onclick="resumePhase()" style="font-size: 0.85rem; padding: 0.65rem;">
             ▶ Resume Supervisor
+          </button>
+          <button class="btn" onclick="forceResumeAllUi()" style="font-size: 0.85rem; padding: 0.65rem; background: linear-gradient(135deg, #f59e0b, #ef4444); border: none; font-weight: 700;" title="Clear stale locks, reactivate failed phases, and trigger immediate polling">
+            ⚡ Force Resume & Unstick
           </button>
         </div>
 
@@ -2146,6 +2149,27 @@
       } finally {
         btn.disabled = false;
         btn.innerText = '▶ Resume Supervisor';
+      }
+    }
+
+    async function forceResumeAllUi() {
+      if (!confirm('Force resume supervisor, clear all stuck locks, and auto-revive all active pollers?')) return;
+      
+      try {
+        const response = await fetch('/api/phases/force-resume', {
+          method: 'POST',
+          headers: getHeaders()
+        });
+        const data = await response.json();
+        if (response.ok && data.success) {
+          alert('⚡ Supervisor Force Resumed & Unstuck! All pollers auto-revived.');
+        } else {
+          alert('Error force resuming: ' + (data.error || 'Unknown error'));
+        }
+        await loadActivePhase();
+      } catch (err) {
+        console.error(err);
+        alert('Failed to force resume supervisor: ' + err.message);
       }
     }
 

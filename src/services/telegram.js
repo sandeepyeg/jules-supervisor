@@ -12,8 +12,8 @@ export const telegramEmitter = new EventEmitter();
 
 export const TELEGRAM_MAIN_KEYBOARD = {
   keyboard: [
-    [{ text: "📊 Live Status" }, { text: "⏭ Skip Active Task" }],
-    [{ text: "⏸ Pause Poller" }, { text: "▶️ Resume Poller" }]
+    [{ text: "📊 Live Status" }, { text: "⚡ Force Resume & Fix" }],
+    [{ text: "⏭ Skip Active Task" }, { text: "▶️ Resume Poller" }]
   ],
   resize_keyboard: true,
   persistent: true
@@ -143,6 +143,22 @@ if (!token || token.startsWith('your_') || process.env.NODE_ENV === 'test' || pr
       } catch (err) {
         console.error('Error handling Telegram /status command:', err);
         await bot.sendMessage(chatId, `Error fetching status: ${err.message}`, { reply_markup: TELEGRAM_MAIN_KEYBOARD });
+      }
+      return;
+    }
+
+    // 1b. Force Resume & Fix Button / Command
+    if (text === '⚡ Force Resume & Fix' || /^\/restart\b/i.test(text) || /^\/force_resume\b/i.test(text)) {
+      try {
+        const { forceResumeAll } = await import('../core/poller.js');
+        const res = await forceResumeAll();
+        await bot.sendMessage(chatId, `⚡ *Supervisor Force Resumed & Unstuck!*\n\nAll pollers auto-revived. Reset active phases: ${res.revivedPhaseIds.join(', ') || 'None'}.\nGitHub PR scan running now...`, {
+          parse_mode: 'Markdown',
+          reply_markup: TELEGRAM_MAIN_KEYBOARD
+        });
+      } catch (err) {
+        console.error('Error force resuming supervisor via Telegram:', err);
+        await bot.sendMessage(chatId, `❌ Error force resuming supervisor: ${err.message}`, { reply_markup: TELEGRAM_MAIN_KEYBOARD });
       }
       return;
     }

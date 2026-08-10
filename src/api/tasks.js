@@ -185,4 +185,75 @@ router.post('/:id/force-review', portalAuth, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/tasks/:id/retry
+ * Resets a failed or escalated task back to queued and restarts execution.
+ */
+router.post('/:id/retry', portalAuth, async (req, res) => {
+  const taskId = parseInt(req.params.id, 10);
+  try {
+    const task = await queries.getTask(taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    await queries.updateTaskStatus(taskId, 'queued', {
+      jules_session_id: null,
+      pr_url: null,
+      pr_number: null,
+      pr_revision_count: 0,
+      last_review_feedback: null,
+      escalated: false
+    });
+
+    const phase = await queries.getPhase(task.phase_id);
+    if (phase && (phase.status === 'failed' || phase.status === 'complete' || phase.status === 'paused')) {
+      await queries.updatePhaseStatus(phase.id, 'active', { completed_at: null });
+      const { startPoller } = await import('../core/poller.js');
+      startPoller(phase.id);
+    }
+
+    const { startReadyTasks } = await import('../core/taskManager.js');
+    await startReadyTasks(task.phase_id);
+
+    const updated = await queries.getTask(taskId);
+    res.json({ retried: true, task: updated });
+  } catch (error) {
+    console.error(`Error retrying task #${taskId}:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/tasks/:id/skip
+ * Marks a task as skipped and unblocks dependent tasks.
+ */
+router.post('/:id/skip', portalAuth, async (req, res) => {
+  const taskId = parseInt(req.params.id, 10);
+  try {
+    const task = await queries.getTask(taskId);
+    if (!task) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    await queries.updateTaskStatus(taskId, 'skipped', { escalated: false });
+
+    const phase = await queries.getPhase(task.phase_id);
+    if (phase && (phase.status === 'failed' || phase.status === 'complete')) {
+      await queries.updatePhaseStatus(phase.id, 'active', { completed_at: null });
+      const { startPoller } = await import('../core/poller.js');
+      startPoller(phase.id);
+    }
+
+    const { startReadyTasks } = await import('../core/taskManager.js');
+    await startReadyTasks(task.phase_id);
+
+    const updated = await queries.getTask(taskId);
+    res.json({ skipped: true, task: updated });
+  } catch (error) {
+    console.error(`Error skipping task #${taskId}:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

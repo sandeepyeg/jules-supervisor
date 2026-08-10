@@ -163,6 +163,39 @@ if (!token || token.startsWith('your_') || process.env.NODE_ENV === 'test' || pr
       return;
     }
 
+    // 1c. Retry Task Command: /retry 357
+    if (/^\/retry/i.test(text)) {
+      const match = text.match(/\d+/);
+      if (!match) {
+        await bot.sendMessage(chatId, "Usage: `/retry 357` (provide task ID)", { parse_mode: 'Markdown', reply_markup: TELEGRAM_MAIN_KEYBOARD });
+        return;
+      }
+      const taskId = parseInt(match[0], 10);
+      try {
+        const task = await queries.getTask(taskId);
+        if (!task) {
+          await bot.sendMessage(chatId, `❌ Task #${taskId} not found.`, { reply_markup: TELEGRAM_MAIN_KEYBOARD });
+          return;
+        }
+        await queries.updateTaskStatus(taskId, 'queued', {
+          jules_session_id: null,
+          pr_url: null,
+          pr_number: null,
+          pr_revision_count: 0,
+          last_review_feedback: null,
+          escalated: false
+        });
+        const { startPoller, runPollCycle } = await import('../core/poller.js');
+        startPoller(task.phase_id);
+        await runPollCycle(task.phase_id);
+
+        await bot.sendMessage(chatId, `🔄 Task #${taskId} ("${task.title}") has been reset to queued and restarted!`, { reply_markup: TELEGRAM_MAIN_KEYBOARD });
+      } catch (err) {
+        await bot.sendMessage(chatId, `❌ Error retrying task #${taskId}: ${err.message}`, { reply_markup: TELEGRAM_MAIN_KEYBOARD });
+      }
+      return;
+    }
+
     // 2. Pause Poller Button
     if (text === '⏸ Pause Poller') {
       try {

@@ -357,4 +357,45 @@ router.patch('/:id/tasks/:taskId', portalAuth, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/phases/force-resume
+ * Force resumes and unsticks all pollers, un-fails stuck phases, and runs GitHub PR scan.
+ */
+router.post('/force-resume', portalAuth, async (req, res) => {
+  try {
+    const result = await poller.forceResumeAll();
+    res.json({ success: true, message: 'Supervisor force resumed and unstuck successfully.', ...result });
+  } catch (error) {
+    console.error('Error force resuming supervisor:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/phases/:id/restart
+ * Restarts poller and un-fails a specific phase.
+ */
+router.post('/:id/restart', portalAuth, async (req, res) => {
+  const phaseId = parseInt(req.params.id, 10);
+  try {
+    const phase = await queries.getPhase(phaseId);
+    if (!phase) {
+      return res.status(404).json({ error: 'Phase not found' });
+    }
+
+    if (phase.status === 'failed') {
+      await queries.updatePhaseStatus(phaseId, 'active', { completed_at: null });
+    }
+
+    poller.stopPoller(phaseId);
+    poller.startPoller(phaseId);
+    await poller.runPollCycle(phaseId);
+
+    res.json({ restarted: true, phaseId });
+  } catch (error) {
+    console.error('Error restarting phase:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

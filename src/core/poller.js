@@ -8,8 +8,9 @@ import { checkStaleRunningTasks } from './staleWatcher.js';
 
 // Keep track of active interval references by phase ID so we can stop them if needed
 const activePollers = new Map();
-const activePollRuns = new Set();
+const activePollRuns = new Map(); // stores phaseId -> startTime
 const manuallyPausedPollers = new Set();
+const POLL_RUN_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes max per poll cycle
 
 /**
  * Watchdog: runs every 2 minutes and auto-revives any dead pollers for active phases.
@@ -23,6 +24,16 @@ setInterval(async () => {
       if (manuallyPausedPollers.has(phase.id)) {
         continue;
       }
+
+      // Break stale lock if running for > 2 minutes
+      if (activePollRuns.has(phase.id)) {
+        const startedAt = activePollRuns.get(phase.id);
+        if (Date.now() - startedAt > POLL_RUN_TIMEOUT_MS) {
+          console.warn(`[Watchdog] Stale poll cycle lock for phase #${phase.id} (${Math.round((Date.now() - startedAt)/1000)}s). Forcing lock release...`);
+          activePollRuns.delete(phase.id);
+        }
+      }
+
       if (!activePollers.has(phase.id)) {
         console.log(`[Watchdog] Poller for phase #${phase.id} is dead. Auto-reviving...`);
         startPoller(phase.id);
@@ -39,7 +50,7 @@ setInterval(async () => {
 export function getPollerHealth() {
   return {
     activePhaseIds: [...activePollers.keys()],
-    inFlightPhaseIds: [...activePollRuns.values()],
+    inFlightPhaseIds: [...activePollRuns.keys()],
     manuallyPausedPhaseIds: [...manuallyPausedPollers.values()]
   };
 }
@@ -51,11 +62,17 @@ export async function runPollCycle(phaseId) {
   }
 
   if (activePollRuns.has(phaseId)) {
-    console.log(`Poll cycle already running for phase ${phaseId}. Skipping overlapping run.`);
-    return { skipped: true, reason: 'already_running' };
+    const startedAt = activePollRuns.get(phaseId);
+    if (Date.now() - startedAt > POLL_RUN_TIMEOUT_MS) {
+      console.warn(`[Watchdog] Stale poll cycle lock detected for phase #${phaseId} (${Math.round((Date.now() - startedAt)/1000)}s). Forcing lock release...`);
+      activePollRuns.delete(phaseId);
+    } else {
+      console.log(`Poll cycle already running for phase ${phaseId}. Skipping overlapping run.`);
+      return { skipped: true, reason: 'already_running' };
+    }
   }
 
-  activePollRuns.add(phaseId);
+  activePollRuns.set(phaseId, Date.now());
 
   try {
     const phase = await queries.getPhase(phaseId);
@@ -65,7 +82,7 @@ export async function runPollCycle(phaseId) {
       return { skipped: true, reason: 'phase_inactive' };
     }
 
-    // 1. Process active running/open PR sessions
+    // 1. Process active running/open PR sessions with per-task timeout guard
     const activeTasks = await queries.getActiveTasks(phaseId);
     for (const task of activeTasks) {
       if (task.status === 'waiting_answer') {
@@ -73,9 +90,12 @@ export async function runPollCycle(phaseId) {
       }
 
       try {
-        await sessionHandler.handleSession(task);
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`Task #${task.id} session handling timed out (45s)`)), 45000)
+        );
+        await Promise.race([sessionHandler.handleSession(task), timeoutPromise]);
       } catch (error) {
-        console.error(`Error handling session for task #${task.id}:`, error);
+        console.error(`Error handling session for task #${task.id}:`, error.message || error);
       }
     }
 
@@ -224,6 +244,42 @@ async function sendReminders() {
       console.error(`Failed to send reminder for pending ID ${p.id}:`, error);
     }
   }
+}
+
+/**
+ * Force Resumes and Unsticks all pollers:
+ * 1. Clears all in-flight locks and manual pauses.
+ * 2. Un-fails any halted active/failed phases in MySQL.
+ * 3. Starts pollers for all active phases immediately.
+ * 4. Runs a GitHub PR scan to catch any PRs created while server/poller was hung.
+ */
+export async function forceResumeAll() {
+  console.log('[ForceResume] Executing force resume & unstick routine...');
+  
+  activePollRuns.clear();
+  manuallyPausedPollers.clear();
+
+  const pool = (await import('../db/connection.js')).pool;
+  const [phases] = await pool.query("SELECT id, title, status FROM phases WHERE status IN ('active', 'failed') ORDER BY id DESC LIMIT 5");
+
+  const revivedPhaseIds = [];
+  for (const phase of phases) {
+    if (phase.status === 'failed') {
+      await queries.updatePhaseStatus(phase.id, 'active', { completed_at: null });
+      console.log(`[ForceResume] Reset phase #${phase.id} ("${phase.title}") status back to 'active'.`);
+    }
+    stopPoller(phase.id);
+    startPoller(phase.id);
+    revivedPhaseIds.push(phase.id);
+  }
+
+  try {
+    await startupGitHubScan();
+  } catch (scanErr) {
+    console.warn('[ForceResume] GitHub scan notice:', scanErr.message);
+  }
+
+  return { ok: true, revivedPhaseIds };
 }
 
 /**

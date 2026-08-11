@@ -146,15 +146,19 @@ export async function resumePhase(phaseId) {
   if (!phase) {
     throw lifecycleError('Phase not found', 404);
   }
+
+  // Clear any active quota backoff timer when developer explicitly clicks Resume
+  taskManager.resetLaunchThrottlesForTests();
+
   if (phase.status === 'active') {
     poller.resumePoller(phaseId);
     return { resumed: true, alreadyActive: true, phaseId, branch: phase.phase_branch };
   }
-  if (phase.status !== 'paused') {
-    throw lifecycleError(`Only paused phases can be resumed. Current status: ${phase.status}`, 400);
+  if (phase.status !== 'paused' && phase.status !== 'failed') {
+    throw lifecycleError(`Only paused or failed phases can be resumed. Current status: ${phase.status}`, 400);
   }
 
-  await queries.updatePhaseStatus(phaseId, 'active');
+  await queries.updatePhaseStatus(phaseId, 'active', { completed_at: null });
   poller.resumePoller(phaseId);
   return { resumed: true, phaseId, branch: phase.phase_branch };
 }

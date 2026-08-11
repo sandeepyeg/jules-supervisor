@@ -55,13 +55,9 @@ function isTransientLaunchError(error) {
 }
 
 async function setDailyLimitBackoff() {
-  const oldestLaunch = await getOldestDailyLaunchCreatedAt();
-  const oldestTs = oldestLaunch ? new Date(oldestLaunch).getTime() : 0;
-  const nextSlotAt = oldestTs
-    ? oldestTs + 24 * 60 * 60 * 1000 + 60 * 1000
-    : Date.now() + 15 * 60 * 1000;
-
-  dailyLimitBackoffUntil = Math.max(Date.now() + 60 * 1000, nextSlotAt);
+  // Short 2-minute backoff when Jules API returns a rate/quota limit.
+  // Re-check Jules API after 2 minutes instead of blocking for hours.
+  dailyLimitBackoffUntil = Date.now() + 2 * 60 * 1000;
   return dailyLimitBackoffUntil;
 }
 
@@ -94,7 +90,7 @@ export async function startReadyTasks(phaseId, explicitBranch = null) {
     return 0;
   }
   if (now < dailyLimitBackoffUntil) {
-    console.log(`[TaskManager] Skipping task launch for Phase #${phaseId}; rolling 24h launch capacity will reopen around ${new Date(dailyLimitBackoffUntil).toLocaleTimeString()}.`);
+    console.log(`[TaskManager] Short Jules quota backoff active until ${new Date(dailyLimitBackoffUntil).toLocaleTimeString()}. Will retry Jules API shortly.`);
     return 0;
   }
 
@@ -104,15 +100,6 @@ export async function startReadyTasks(phaseId, explicitBranch = null) {
     console.log(`[TaskManager] Concurrency limit reached (${currentlyRunning}/${MAX_CONCURRENT_TASKS} active tasks). Waiting for active sessions to complete.`);
     return 0;
   }
-
-  // 2. Enforce rolling 24h launch capacity (default 100)
-  const dailyLaunched = await getDailyLaunchedTaskCount();
-  if (dailyLaunched >= MAX_DAILY_TASKS) {
-    const retryAt = await setDailyLimitBackoff();
-    console.warn(`[TaskManager] Rolling 24h launch limit reached (${dailyLaunched}/${MAX_DAILY_TASKS} sessions). Holding queued tasks until about ${new Date(retryAt).toLocaleTimeString()}.`);
-    return 0;
-  }
-  const dailyLaunchSlots = Math.max(0, MAX_DAILY_TASKS - dailyLaunched);
 
   let phaseBranch = explicitBranch;
   if (!phaseBranch) {
@@ -130,11 +117,6 @@ export async function startReadyTasks(phaseId, explicitBranch = null) {
   for (const task of readyTasks) {
     if (currentlyRunning + startedCount >= MAX_CONCURRENT_TASKS) {
       console.log(`[TaskManager] Reached concurrency limit of ${MAX_CONCURRENT_TASKS} active tasks.`);
-      break;
-    }
-    if (startedCount >= dailyLaunchSlots) {
-      const retryAt = await setDailyLimitBackoff();
-      console.log(`[TaskManager] Used remaining rolling 24h launch capacity (${dailyLaunched + startedCount}/${MAX_DAILY_TASKS}). Holding the rest until about ${new Date(retryAt).toLocaleTimeString()}.`);
       break;
     }
     try {

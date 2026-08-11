@@ -73,62 +73,27 @@ test('Task launch throttling keeps phases draining over time', async (t) => {
     return phaseId;
   }
 
-  await t.test('rolling 24h limit holds queued tasks and reports retry state', async () => {
-    await insertRecentLaunchedTasks(100);
+  await t.test('concurrency limit holds launching when 15 sessions are active', async () => {
     const phaseId = await createReadyPhase(1);
+    // Simulate 15 active running tasks
+    for (let i = 0; i < 15; i++) {
+      inMemoryDb.tasks.push({
+        id: 40000 + i,
+        phase_id: 999,
+        title: `Active Task ${i}`,
+        status: 'running',
+        jules_session_id: `active-session-${i}`
+      });
+    }
 
     const started = await startReadyTasks(phaseId, 'feature/launch-throttle');
     assert.strictEqual(started, 0);
 
     const task = inMemoryDb.tasks.find(t => t.phase_id === phaseId);
     assert.strictEqual(task.status, 'queued');
-
-    const throttle = getRateLimitStatus();
-    assert.strictEqual(throttle.isDailyLimited, true);
-    assert.ok(throttle.dailyLimitRetryInSeconds > 0);
   });
 
-  await t.test('remaining rolling 24h capacity is used, then the rest stays queued', async () => {
-    await insertRecentLaunchedTasks(99);
-    const phaseId = await createReadyPhase(3);
-
-    const started = await startReadyTasks(phaseId, 'feature/launch-throttle');
-    assert.strictEqual(started, 1);
-
-    const phaseTasks = inMemoryDb.tasks.filter(t => t.phase_id === phaseId);
-    assert.strictEqual(phaseTasks.filter(t => t.status === 'running').length, 1);
-    assert.strictEqual(phaseTasks.filter(t => t.status === 'queued').length, 2);
-    assert.strictEqual(getRateLimitStatus().isDailyLimited, true);
-  });
-
-  await t.test('rolling 24h limit uses Jules launch time, not task import time', async () => {
-    const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-
-    for (let i = 0; i < 100; i++) {
-      inMemoryDb.tasks.push({
-        id: 30000 + i,
-        phase_id: 998,
-        title: `Imported Earlier Session ${i}`,
-        description: '',
-        status: 'merged',
-        sort_order: i,
-        depends_on: JSON.stringify([]),
-        jules_session_id: `imported-earlier-${i}`,
-        created_at: twoDaysAgo,
-        jules_launched_at: oneHourAgo,
-        updated_at: oneHourAgo
-      });
-    }
-
-    const phaseId = await createReadyPhase(1);
-    const started = await startReadyTasks(phaseId, 'feature/launch-throttle');
-
-    assert.strictEqual(started, 0);
-    assert.strictEqual(getRateLimitStatus().isDailyLimited, true);
-  });
-
-  await t.test('Jules FAILED_PRECONDITION launch response holds queued tasks without failing them', async () => {
+  await t.test('Jules FAILED_PRECONDITION launch response holds queued tasks with short 2m backoff', async () => {
     globalThis.__mockFetch = async (url, options = {}) => {
       if (String(url).includes('/sessions') && options.method === 'POST') {
         return {

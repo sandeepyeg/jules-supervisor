@@ -26,6 +26,8 @@ export async function getReadyTasks(phaseId) {
 let rateLimitBackoffUntil = 0;
 let rateLimitBackoffMs = 5 * 60 * 1000;
 let dailyLimitBackoffUntil = 0;
+let lastQuotaTelegramAlertAt = 0;
+let consecutiveQuotaHits = 0;
 
 function isRateLimitError(error) {
   const message = error?.message?.toLowerCase?.() || '';
@@ -55,10 +57,21 @@ function isTransientLaunchError(error) {
 }
 
 async function setDailyLimitBackoff() {
-  // Short 2-minute backoff when Jules API returns a rate/quota limit.
-  // Re-check Jules API after 2 minutes instead of blocking for hours.
-  dailyLimitBackoffUntil = Date.now() + 2 * 60 * 1000;
+  consecutiveQuotaHits++;
+  // Progressive backoff (15m -> 30m -> 60m max) to prevent hammering Google's API while quota is full
+  let backoffMinutes = 15;
+  if (consecutiveQuotaHits === 2) backoffMinutes = 30;
+  if (consecutiveQuotaHits >= 3) backoffMinutes = 60;
+
+  dailyLimitBackoffUntil = Date.now() + backoffMinutes * 60 * 1000;
   return dailyLimitBackoffUntil;
+}
+
+function resetQuotaTracking() {
+  consecutiveQuotaHits = 0;
+  lastQuotaTelegramAlertAt = 0;
+  dailyLimitBackoffUntil = 0;
+  rateLimitBackoffUntil = 0;
 }
 
 export function getRateLimitStatus() {
@@ -81,6 +94,8 @@ export function resetLaunchThrottlesForTests() {
   rateLimitBackoffUntil = 0;
   rateLimitBackoffMs = 5 * 60 * 1000;
   dailyLimitBackoffUntil = 0;
+  lastQuotaTelegramAlertAt = 0;
+  consecutiveQuotaHits = 0;
 }
 
 export async function startReadyTasks(phaseId, explicitBranch = null) {
@@ -90,7 +105,7 @@ export async function startReadyTasks(phaseId, explicitBranch = null) {
     return 0;
   }
   if (now < dailyLimitBackoffUntil) {
-    console.log(`[TaskManager] Short Jules quota backoff active until ${new Date(dailyLimitBackoffUntil).toLocaleTimeString()}. Will retry Jules API shortly.`);
+    console.log(`[TaskManager] Jules quota backoff active until ${new Date(dailyLimitBackoffUntil).toLocaleTimeString()} (Hit #${consecutiveQuotaHits}). Will re-check Jules API then.`);
     return 0;
   }
 
@@ -151,17 +166,21 @@ Proceed directly to implementation and code execution. Do NOT ask clarifying que
       }
       
       startedCount++;
-      rateLimitBackoffMs = 5 * 60 * 1000;
+      resetQuotaTracking();
     } catch (error) {
       if (isRateLimitError(error)) {
         const retryAt = await setDailyLimitBackoff();
         const retryMinutes = Math.ceil((retryAt - Date.now()) / 60000);
-        rateLimitBackoffMs = 5 * 60 * 1000;
-        console.warn(`[TaskManager] Jules launch quota/rate limit hit on task #${task.id}. Holding queued tasks for about ${retryMinutes} minute(s), then retrying automatically.`);
+        console.warn(`[TaskManager] Jules launch quota hit on task #${task.id} (Hit #${consecutiveQuotaHits}). Backing off for ${retryMinutes} minute(s).`);
         
-        try {
-          await telegram.sendNotification(`⚠️ *Jules Launch Limit Reached*\nTask "#${task.id}: ${task.title}" hit a Jules rate/quota limit.\n\nSupervisor action: holding queued tasks for about ${retryMinutes} minute(s). The phase remains active and will retry automatically.`);
-        } catch (tErr) {}
+        // Deduplicate Telegram notification: send ONCE when quota limit is first hit (or every 6h max)
+        const timestampNow = Date.now();
+        if (!lastQuotaTelegramAlertAt || (timestampNow - lastQuotaTelegramAlertAt > 6 * 60 * 60 * 1000)) {
+          lastQuotaTelegramAlertAt = timestampNow;
+          try {
+            await telegram.sendNotification(`⚠️ *Jules Launch Quota Reached*\nTask "#${task.id}: ${task.title}" hit Jules daily quota limit.\n\nSupervisor action: Pausing launches with progressive backoff (${retryMinutes}m) so Google quota can reset naturally without API hammering. The supervisor will retry automatically.`);
+          } catch (tErr) {}
+        }
         break;
       }
 

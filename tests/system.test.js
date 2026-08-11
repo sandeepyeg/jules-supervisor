@@ -319,10 +319,7 @@ test('End-to-End Real World Supervisor Workflow Simulator', async (t) => {
     const t1 = await queries.getTask(task1Id);
     assert.strictEqual(t1.status, 'merged');
 
-    // Poller tick: start next ready tasks
-    const started = await taskManager.startReadyTasks(phaseId, `feature/phase-${phaseId}`);
-    assert.strictEqual(started, 1, 'Task 2 should now start since Task 1 is merged');
-
+    // Task 2 was launched instantly upon Task 1 merge
     const t2 = await queries.getTask(task2Id);
     assert.strictEqual(t2.status, 'running');
     assert.strictEqual(t2.jules_session_id, 'mock_jules_session_xyz');

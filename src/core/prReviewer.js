@@ -2,6 +2,7 @@ import * as github from '../services/github.js';
 import * as ai from '../services/ai.js';
 import * as jules from '../services/jules.js';
 import * as telegram from '../services/telegram.js';
+import * as taskManager from './taskManager.js';
 import { updateTaskStatus, logQA, hasQALogEntry, getPhase, getQueuedReadyTasks, resetTaskForConflictRework } from '../db/queries.js';
 import {
   TASK_AUTO_MERGE_TO_PHASE_BRANCH,
@@ -384,6 +385,29 @@ export async function reviewAndMerge(task) {
     const files = await github.getPRFiles(task.pr_number);
     const filenames = files.map(f => f.filename);
 
+    // 3b. Empty PR & Zero-Diff Fast Rejector (50ms check without calling AI reviewer)
+    // Only trigger if file metadata is present and explicitly has 0 additions/deletions across files
+    if (files && files.length > 0) {
+      const hasStats = files.some(f => f.additions !== undefined || f.deletions !== undefined || f.changes !== undefined);
+      const totalDiffChanges = files.reduce((acc, f) => acc + (f.additions || 0) + (f.deletions || 0), 0);
+      if (hasStats && totalDiffChanges === 0) {
+        console.warn(`[FastRejector] PR #${task.pr_number} for task #${task.id} contains 0 code changes. Fast-rejecting without calling AI Reviewer.`);
+        const emptyPrompt = `Automated verification failed: PR #${task.pr_number} contains 0 lines of implementation code. Please implement the requested feature, commit, and push your changes to PR #${task.pr_number}.`;
+        
+        try {
+          await jules.sendMessage(task.jules_session_id, emptyPrompt);
+          await github.addPRComment(task.pr_number, `⚠️ **Supervisor Verification Notice**: PR #${task.pr_number} contains 0 code changes. Requested Jules to commit implementation code.`);
+        } catch (rejectErr) {
+          console.warn(`[FastRejector] Error messaging Jules/GitHub for task #${task.id}:`, rejectErr.message);
+        }
+
+        await updateTaskStatus(task.id, 'running', {
+          last_review_feedback: 'Fast-rejected: PR contains 0 code changes'
+        });
+        return { merged: false, approved: false, emptyPr: true, reason: 'PR contains zero code changes' };
+      }
+    }
+
     let rawDiff = await github.getPRDiff(task.pr_number);
     if (rawDiff.length > MAX_PR_DIFF_CHARS) {
       console.warn(`PR diff length (${rawDiff.length}) exceeds MAX_PR_DIFF_CHARS (${MAX_PR_DIFF_CHARS}). Marking task as unreviewed so phase flow is not stopped.`);
@@ -569,6 +593,13 @@ export async function reviewAndMerge(task) {
           await telegram.sendTaskMergedNotification(task.title, task.id, pr.html_url || task.pr_url, phase.phase_branch, nextTitle);
         } catch (tgErr) {
           console.error('Failed to send Telegram task merged notification:', tgErr);
+        }
+
+        // Instant downstream task launch (sub-second draining)
+        try {
+          await taskManager.startReadyTasks(task.phase_id, phase.phase_branch);
+        } catch (launchErr) {
+          console.warn(`[InstantLaunch] Downstream launch notice for phase #${task.phase_id}:`, launchErr.message);
         }
 
         return { merged: true };

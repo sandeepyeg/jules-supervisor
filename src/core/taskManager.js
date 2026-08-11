@@ -9,6 +9,7 @@ import {
 import { pool } from '../db/connection.js';
 import { createSession } from '../services/jules.js';
 import * as telegram from '../services/telegram.js';
+import { buildContext } from './contextBuilder.js';
 
 const MAX_CONCURRENT_TASKS = parseInt(process.env.MAX_CONCURRENT_TASKS || '15', 10);
 const MAX_DAILY_TASKS = parseInt(process.env.MAX_DAILY_TASKS || '100', 10);
@@ -135,19 +136,7 @@ export async function startReadyTasks(phaseId, explicitBranch = null) {
       break;
     }
     try {
-      const prompt = `${task.title}
-
-${task.description || ''}
-
-Target branch: ${phaseBranch}
-Open your pull request against ${phaseBranch}.
-
-REQUIREMENTS:
-- Do NOT open PRs against main or develop. Open PR against ${phaseBranch}.
-- Focus on clean, modular, and robust implementation of this specific task.
-
-⚡ DIRECT EXECUTION INSTRUCTION:
-Proceed directly to implementation and code execution. Do NOT ask clarifying questions, do NOT request plan approval, and do NOT wait for chat feedback. Implement the changes, commit, push, and open the Pull Request against ${phaseBranch} immediately.`;
+      const prompt = await buildContext(task, phaseId);
       
       // Start the Jules session
       const { sessionId } = await createSession(prompt, phaseBranch, task.jules_notes);

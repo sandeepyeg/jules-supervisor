@@ -337,9 +337,11 @@ Note: The previous attempt failed. Please try a different approach.`;
 
         console.log(`Task #${task.id} retried. New Session ID: ${sessionId}`);
       } else {
-        console.log(`Task #${task.id} failed after ${maxRetries} retries.`);
-        await queries.updateTaskStatus(task.id, 'failed');
-        await telegram.sendNotification(`❌ Task failed after ${maxRetries} retries: "${task.title}"`);
+        console.log(`Task #${task.id} exhausted ${maxRetries} retries. Auto-skipping to keep phase progress flowing.`);
+        await queries.updateTaskStatus(task.id, 'skipped', {
+          last_review_feedback: `Auto-skipped after exhausting ${maxRetries} session attempts`
+        });
+        await telegram.sendNotification(`⏭️ Task #${task.id} ("${task.title}") session failed after ${maxRetries} attempts. Auto-skipped to keep phase progress flowing.`);
       }
       break;
     }

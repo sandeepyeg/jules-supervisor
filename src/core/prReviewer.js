@@ -328,56 +328,32 @@ export async function reviewAndMerge(task) {
       const currentRetries = task.retry_count || 0;
       console.log(`PR #${task.pr_number} has unresolved merge conflicts with target branch "${phase.phase_branch}". Retry count: ${currentRetries}/${MAX_CONFLICT_RETRIES}`);
 
-      if (currentRetries < MAX_CONFLICT_RETRIES) {
-        const nextRetryCount = currentRetries + 1;
-        const closingComment = `PR closed by supervisor due to unresolved merge conflicts with ${phase.phase_branch}. Task #${task.id} will be restarted fresh on the latest commit of ${phase.phase_branch} (Attempt ${nextRetryCount}/${MAX_CONFLICT_RETRIES}).`;
+      // 2. Smart merge conflict resolution — update base branch and keep PR open
+      console.log(`PR #${task.pr_number} has merge conflicts with base branch "${phase.phase_branch}". Attempting automated branch update...`);
+      const updateSuccess = await github.updatePRBranch(task.pr_number);
 
-        await logQA(
-          task.id,
-          `[PR Review Command] PR #${task.pr_number}`,
-          `Blocked: Unresolved merge conflicts with "${phase.phase_branch}". PR #${task.pr_number} closed and task reset to queued for fresh restart (attempt ${nextRetryCount}/${MAX_CONFLICT_RETRIES}).`,
-          'system',
-          null
-        );
+      if (updateSuccess) {
+        console.log(`Auto-update branch succeeded for PR #${task.pr_number}. Re-evaluating PR status...`);
+        pr = await github.getPR(task.pr_number);
+      }
 
-        await github.closePR(task.pr_number, closingComment);
-        await resetTaskForConflictRework(task.id, nextRetryCount);
-
-        try {
-          await telegram.sendNotification(
-            `⚠️ Task #${task.id} ("${task.title}") PR #${task.pr_number} had merge conflicts. PR closed; restarting task fresh on latest target branch ${phase.phase_branch} (Attempt ${nextRetryCount}/${MAX_CONFLICT_RETRIES})...`
-          );
-        } catch (tgErr) {
-          console.warn('Failed to send conflict rework Telegram alert:', tgErr.message);
-        }
-
-        const { startReadyTasks } = await import('./taskManager.js');
-        await startReadyTasks(phase.id, phase.phase_branch);
-
-        return { merged: false, restarted: true, reason: `PR #${task.pr_number} closed due to merge conflicts; task restarted fresh on target branch` };
-      } else {
-        const closingComment = `PR closed by supervisor: Merge conflict rework limit reached (${MAX_CONFLICT_RETRIES}/${MAX_CONFLICT_RETRIES} attempts). Human review required.`;
-
-        await logQA(
-          task.id,
-          `[PR Review Command] PR #${task.pr_number}`,
-          `Failed: Unresolved merge conflicts persisted after ${MAX_CONFLICT_RETRIES} attempts. Marking task failed.`,
-          'system',
-          null
-        );
-
-        await github.closePR(task.pr_number, closingComment);
-        await updateTaskStatus(task.id, 'failed');
+      if (!pr.mergeable && pr.mergeable_state === 'dirty') {
+        console.log(`PR #${task.pr_number} still has conflicts. Notifying Jules session to resolve conflicts while keeping PR open.`);
+        
+        const conflictPrompt = `Merge conflict alert: Your PR #${task.pr_number} has merge conflicts with base branch ${phase.phase_branch}. Please fetch the latest ${phase.phase_branch}, merge/rebase it into your local working branch, resolve all conflict markers, and push the updated commit to PR #${task.pr_number}.`;
 
         try {
-          await telegram.sendNotification(
-            `🚨 Task #${task.id} ("${task.title}") failed: Unresolved merge conflicts after ${MAX_CONFLICT_RETRIES} attempts. PR #${task.pr_number} closed.`
-          );
-        } catch (tgErr) {
-          console.warn('Failed to send conflict failure Telegram alert:', tgErr.message);
+          await jules.sendMessage(task.jules_session_id, conflictPrompt);
+          await github.addPRComment(task.pr_number, `⚠️ **Supervisor Notice**: Merge conflicts detected with \`${phase.phase_branch}\`. Jules has been instructed to rebase and resolve conflicts.`);
+        } catch (msgErr) {
+          console.warn(`Failed to notify Jules for PR #${task.pr_number} conflict:`, msgErr.message);
         }
 
-        return { merged: false, failed: true, reason: `Max conflict retries (${MAX_CONFLICT_RETRIES}) reached` };
+        await updateTaskStatus(task.id, 'running', {
+          last_review_feedback: `Merge conflict with ${phase.phase_branch} — requested Jules rebase`
+        });
+
+        return { merged: false, conflict: true, reason: `PR #${task.pr_number} has merge conflicts; Jules notified to rebase` };
       }
     }
 

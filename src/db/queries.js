@@ -260,8 +260,9 @@ export async function getQueuedReadyTasks(phaseId) {
     }
     
     const allDependenciesMerged = dependsOn.every(depId => {
+      if (depId === task.id) return true; // Filter self-referencing dependency loops
       const status = statusMap.get(depId);
-      return status === 'merged' || status === 'skipped' || status === 'unreviewed';
+      return status === 'merged' || status === 'skipped' || status === 'unreviewed' || status === 'failed';
     });
     
     if (allDependenciesMerged) {

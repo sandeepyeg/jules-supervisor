@@ -257,3 +257,60 @@ Respond ONLY with valid JSON in this exact format:
     };
   }
 }
+
+/**
+ * Two-Tier Architectural Council:
+ * Consults the Strong Reviewer Model (gemini-3.5-flash / qwen3.7) with enriched
+ * codebase guidelines and architectural authority when the primary model has low confidence.
+ */
+export async function askArchitecturalCouncil(contextPrompt, question) {
+  const prompt = `You are the Lead Principal Software Architect and Supervisor for an autonomous AI development team.
+An agent has encountered an implementation or architectural question that requires expert guidance.
+
+PROJECT CONTEXT & RULES:
+${contextPrompt}
+
+AGENT QUESTION:
+${question}
+
+ARCHITECTURAL COUNCIL MANDATE:
+1. Provide a decisive, concrete, and production-grade implementation answer based on standard framework best practices and the project context.
+2. If this is a standard technical decision (e.g. library choice, folder structure, API contract, naming, typing, schema pattern), provide a clear, unambiguous answer with confidence >= 8.
+3. Only give a low confidence (< 7) if the question genuinely requires an external human business preference, third-party legal decision, or production secret that cannot be deduced from the repository.
+
+Respond ONLY with valid JSON:
+{
+  "confidence": <number 1-10>,
+  "answer": "<direct decisive instruction for the agent>",
+  "reason": "<architectural rationale>"
+}`;
+
+  try {
+    const result = await askJsonGoogleFirst(
+      'google',
+      'gemini-3.5-flash',
+      prompt,
+      { returnJson: true, temperature: 0.1 },
+      parsed => !isNaN(Number(parsed.confidence))
+    );
+
+    return {
+      confidence: Number(result.parsed.confidence),
+      answer: result.parsed.answer,
+      reason: result.parsed.reason,
+      provider: result.provider,
+      model: result.model,
+      isCouncil: true
+    };
+  } catch (error) {
+    console.warn('[ArchitecturalCouncil] Error during strong model consultation:', error.message);
+    return {
+      confidence: 0,
+      answer: '',
+      reason: error.message,
+      provider: 'google',
+      model: 'gemini-3.5-flash',
+      isCouncil: true
+    };
+  }
+}

@@ -58,24 +58,39 @@ export async function handleQuestion(task, question, activityId) {
   // 2. Build context
   const context = await buildContext(task, task.phase_id);
 
-  // 3. Consult AI with confidence threshold
-  console.log(`Consulting AI with confidence threshold ${AI_CONFIDENCE_THRESHOLD}...`);
+  // 3. Consult AI with confidence threshold (Tier 1)
+  console.log(`Consulting Primary AI with confidence threshold ${AI_CONFIDENCE_THRESHOLD}...`);
   let result = null;
   try {
     result = await ai.askWithConfidence(context, question);
-    console.log(`AI Confidence: ${result.confidence}/10. Reason: ${result.reason}`);
+    console.log(`Tier 1 AI Confidence: ${result.confidence}/10. Reason: ${result.reason}`);
   } catch (aiErr) {
     console.error(`AI service error during askWithConfidence:`, aiErr.message);
     result = { confidence: 0, answer: '', reason: aiErr.message };
   }
 
+  // 4. Two-Tier Escalation: If Tier 1 confidence is low, consult Strong Architectural Council (Tier 2)
+  if (!result || result.confidence < AI_CONFIDENCE_THRESHOLD) {
+    console.log(`[ArchitecturalCouncil] Tier 1 confidence insufficient (${result?.confidence || 0}/10). Consulting Tier 2 Strong Architectural Council (gemini-3.5-flash)...`);
+    try {
+      const councilResult = await ai.askArchitecturalCouncil(context, question);
+      console.log(`[ArchitecturalCouncil] Tier 2 Council Confidence: ${councilResult.confidence}/10. Reason: ${councilResult.reason}`);
+      if (councilResult && councilResult.confidence >= AI_CONFIDENCE_THRESHOLD && councilResult.answer && councilResult.answer.trim().length > 0) {
+        result = councilResult;
+      }
+    } catch (councilErr) {
+      console.warn(`[ArchitecturalCouncil] Error consulting council:`, councilErr.message);
+    }
+  }
+
   // 5. Check if confidence meets threshold
   if (result && result.confidence >= AI_CONFIDENCE_THRESHOLD && result.answer && result.answer.trim().length > 0) {
-    console.log(`AI confidence meets threshold. Auto-answering Jules session.`);
+    const isCouncil = result.isCouncil ? ' (Architectural Council)' : '';
+    console.log(`AI confidence meets threshold${isCouncil}. Auto-answering Jules session.`);
     await jules.sendMessage(task.jules_session_id, result.answer);
     
     try {
-      await logQA(task.id, question, result.answer, getQaAnsweredBy(result.provider), result.confidence);
+      await logQA(task.id, question, result.answer, result.isCouncil ? 'gemini-3.5-flash' : getQaAnsweredBy(result.provider), result.confidence);
     } catch (logErr) {
       console.warn(`Failed to log AI answer for task #${task.id}:`, logErr.message);
     }
@@ -85,7 +100,7 @@ export async function handleQuestion(task, question, activityId) {
       last_activity_id: activityId
     });
     
-    return { escalated: false, answer: result.answer };
+    return { escalated: false, answer: result.answer, councilUsed: !!result.isCouncil };
   } else {
     const reasonText = result ? (result.confidence < AI_CONFIDENCE_THRESHOLD ? `Low AI Confidence: ${result.confidence}/10` : 'AI Error') : 'Escalated';
     console.log(`AI confidence insufficient (${reasonText}). Escalating to Telegram.`);

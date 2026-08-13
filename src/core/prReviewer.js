@@ -265,8 +265,22 @@ The response must be strict JSON matching this exact format:
 
 /**
  * Reviews a task's Pull Request and merges it if approved, otherwise requests revisions.
+ * Automatically queued sequentially per phase branch via mergeQueue to prevent merge race conditions.
  */
 export async function reviewAndMerge(task) {
+  let phaseBranch = 'default';
+  try {
+    const phase = await getPhase(task.phase_id);
+    if (phase?.phase_branch) {
+      phaseBranch = phase.phase_branch;
+    }
+  } catch (_) {}
+
+  const { enqueueMerge } = await import('./mergeQueue.js');
+  return enqueueMerge(phaseBranch, () => executeReviewAndMerge(task));
+}
+
+async function executeReviewAndMerge(task) {
   console.log(`Reviewing PR #${task.pr_number} for task #${task.id} ("${task.title}")`);
 
   try {

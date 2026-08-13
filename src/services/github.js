@@ -648,3 +648,66 @@ export async function closeDuplicateTaskPRs(baseBranch, currentPRNumber, taskId,
     console.warn(`Error scanning for duplicate PRs on branch ${baseBranch}:`, err.message);
   }
 }
+
+/**
+ * Reads plain-text content of a file at a specific git ref (branch/sha).
+ */
+export async function getFileContent(ref, filePath) {
+  const repoUrl = getRepoUrl();
+  const url = `${repoUrl}/contents/${filePath.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(ref)}`;
+  const response = await fetchWithRetry(url, {
+    method: 'GET',
+    headers: getHeaders()
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to get file ${filePath} at ${ref}: ${response.statusText} - ${errText}`);
+  }
+
+  const data = await response.json();
+  if (data.encoding === 'base64' && data.content) {
+    return Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf8');
+  }
+  return data.content || '';
+}
+
+/**
+ * Creates or updates a file directly on a target branch via GitHub API.
+ */
+export async function updateFileContent(branch, filePath, content, commitMessage = 'Supervisor: Update file') {
+  const repoUrl = getRepoUrl();
+  const url = `${repoUrl}/contents/${filePath.split('/').map(encodeURIComponent).join('/')}`;
+
+  let existingSha = null;
+  try {
+    const checkUrl = `${url}?ref=${encodeURIComponent(branch)}`;
+    const checkRes = await fetchWithRetry(checkUrl, { method: 'GET', headers: getHeaders() });
+    if (checkRes.ok) {
+      const existingData = await checkRes.json();
+      existingSha = existingData.sha;
+    }
+  } catch (_) {}
+
+  const body = {
+    message: commitMessage,
+    content: Buffer.from(content).toString('base64'),
+    branch: branch
+  };
+  if (existingSha) {
+    body.sha = existingSha;
+  }
+
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: getHeaders(),
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Failed to update file ${filePath} on ${branch}: ${response.statusText} - ${errText}`);
+  }
+
+  return response.json();
+}

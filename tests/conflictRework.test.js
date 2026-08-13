@@ -32,6 +32,9 @@ test('Conflict Handling and Task Rework Suite', async (t) => {
         text: async () => 'conflict'
       };
     }
+    if (checkUrl.includes('/files')) {
+      return { ok: true, json: async () => [] };
+    }
     if (checkUrl.includes('/pulls/999') && options.method === 'PATCH') {
       const body = JSON.parse(options.body || '{}');
       if (body.state === 'closed') {
@@ -47,14 +50,16 @@ test('Conflict Handling and Task Rework Suite', async (t) => {
     if (checkUrl.includes('/pulls/999') && options.method === 'GET') {
       return {
         ok: true,
+        text: async () => 'diff contents',
         json: async () => ({
           number: 999,
           title: 'Conflict Task',
           html_url: 'https://github.com/owner/repo/pull/999',
           base: { ref: 'feature/test-conflict-01' },
-          head: { sha: 'head-sha-123' },
+          head: { sha: 'head-sha-123', ref: 'head-branch-123' },
           state: 'open',
-          mergeable: mockPRMergeable
+          mergeable: mockPRMergeable,
+          mergeable_state: mockPRMergeable ? 'clean' : 'dirty'
         })
       };
     }
@@ -87,7 +92,7 @@ test('Conflict Handling and Task Rework Suite', async (t) => {
     jules_session_id: 'session_xyz'
   });
 
-  await t.test('unresolved conflict triggers task rework, closes PR and resets task to queued', async () => {
+  await t.test('unresolved conflict triggers smart AI resolution and keeps PR open', async () => {
     mockUpdateBranchOk = false;
     mockPRMergeable = false;
 
@@ -95,14 +100,11 @@ test('Conflict Handling and Task Rework Suite', async (t) => {
     const res = await prReviewer.reviewAndMerge(task);
 
     assert.strictEqual(res.merged, false);
-    assert.strictEqual(res.restarted, true);
-    assert.strictEqual(closedPRNumber, 999);
-    assert.ok(closedPRComment.includes('PR closed by supervisor due to unresolved merge conflicts'));
+    assert.strictEqual(res.conflict, true);
+    assert.strictEqual(res.reason.includes('has merge conflicts'), true);
 
     const updatedTask = await queries.getTask(taskId);
-    assert.strictEqual(updatedTask.status, 'queued');
-    assert.strictEqual(updatedTask.retry_count, 1);
-    assert.strictEqual(updatedTask.pr_number, null);
-    assert.strictEqual(updatedTask.jules_session_id, null);
+    assert.strictEqual(updatedTask.status, 'running');
+    assert.strictEqual(updatedTask.pr_number, 999);
   });
 });

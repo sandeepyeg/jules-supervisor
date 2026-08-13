@@ -328,9 +328,15 @@ export async function reviewAndMerge(task) {
       const currentRetries = task.retry_count || 0;
       console.log(`PR #${task.pr_number} has unresolved merge conflicts with target branch "${phase.phase_branch}". Retry count: ${currentRetries}/${MAX_CONFLICT_RETRIES}`);
 
-      // 2. Smart merge conflict resolution — update base branch and keep PR open
+      // 2. Smart merge conflict resolution — AI synthesize clean merge and keep PR open
       console.log(`PR #${task.pr_number} has merge conflicts with base branch "${phase.phase_branch}". Attempting automated branch update...`);
-      const updateSuccess = await github.updatePRBranch(task.pr_number);
+      let updateSuccess = await github.updatePRBranch(task.pr_number);
+
+      if (!updateSuccess) {
+        console.log(`[SmartConflictResolver] Branch update hit conflict. Running AI Line-by-Line Conflict Resolver for PR #${task.pr_number}...`);
+        const { smartResolvePRMergeConflicts } = await import('./conflictResolver.js');
+        updateSuccess = await smartResolvePRMergeConflicts(task.pr_number, task, phase.phase_branch);
+      }
 
       if (updateSuccess) {
         console.log(`Auto-update branch succeeded for PR #${task.pr_number}. Re-evaluating PR status...`);

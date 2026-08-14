@@ -2,12 +2,21 @@ import * as github from '../services/github.js';
 import * as ai from '../services/ai.js';
 import * as jules from '../services/jules.js';
 
+let aiQuotaExceededUntil = 0;
+
 /**
  * Smart AI Line-by-Line Conflict Resolver Engine
  * Automatically resolves merge conflicts between a PR branch and base phase branch
  * using AI logic synthesis to combine both code changes cleanly without closing PRs.
  */
 export async function smartResolvePRMergeConflicts(prNumber, task, phaseBranch) {
+  const now = Date.now();
+  if (now < aiQuotaExceededUntil) {
+    const remainingMins = Math.round((aiQuotaExceededUntil - now) / 60000);
+    console.log(`[SmartConflictResolver] AI Conflict Resolver in quota cooldown for next ${remainingMins}m. Skipping AI resolution for PR #${prNumber}.`);
+    return false;
+  }
+
   try {
     console.log(`[SmartConflictResolver] Starting AI conflict resolution for PR #${prNumber}...`);
     
@@ -69,6 +78,11 @@ INSTRUCTIONS:
           resolvedCode = await ai.askModel('google', 'gemini-3.1-flash-lite', prompt, { temperature: 0.1 });
         } catch (geminiErr) {
           console.warn(`[SmartConflictResolver] Google Gemini failed for ${filePath}: ${geminiErr.message}`);
+          if (geminiErr.message.includes('429') || geminiErr.message.includes('Quota exceeded') || geminiErr.message.includes('RESOURCE_EXHAUSTED')) {
+            aiQuotaExceededUntil = Date.now() + 10 * 60 * 1000; // 10 min circuit breaker
+            console.warn(`[SmartConflictResolver] Quota exceeded on AI providers. Entering 10-minute circuit breaker.`);
+            return false;
+          }
         }
       }
 

@@ -178,12 +178,32 @@ export async function requestChangesOnPR(prNumber, body) {
   return response.json();
 }
 
+// In-memory anti-spam comment cache: `${prNumber}:${hash}` -> timestamp
+const sentPRCommentCache = new Map();
+const PR_COMMENT_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes for identical comment on same PR
+
 /**
- * Posts a plain (non-review) comment on a pull request. Used as a fallback when
- * requestChangesOnPR fails (e.g. a self-review restriction), and for informational
- * notes like "auto-review limit reached" that aren't a formal change request.
+ * Posts a plain (non-review) comment on a pull request with anti-spam rate limiting.
  */
-export async function addPRComment(prNumber, body) {
+export async function addPRComment(prNumber, body, options = {}) {
+  const { force = false } = options;
+  const now = Date.now();
+
+  // Clean up cache entries older than 1 hour
+  for (const [key, ts] of sentPRCommentCache.entries()) {
+    if (now - ts > 60 * 60 * 1000) sentPRCommentCache.delete(key);
+  }
+
+  const commentSnippet = (body || '').trim();
+  const cacheKey = `${prNumber}:${commentSnippet.slice(0, 100)}`;
+  const lastSent = sentPRCommentCache.get(cacheKey);
+
+  if (!force && lastSent && (now - lastSent) < PR_COMMENT_COOLDOWN_MS) {
+    const elapsedMins = Math.round((now - lastSent) / 60000);
+    console.log(`[GitHub AntiSpam] Suppressed duplicate comment on PR #${prNumber} (${elapsedMins}m ago): "${commentSnippet.slice(0, 60)}..."`);
+    return { suppressed: true, reason: 'duplicate_cooldown' };
+  }
+
   const repoUrl = getRepoUrl();
   const url = `${repoUrl}/issues/${prNumber}/comments`;
 
@@ -198,8 +218,10 @@ export async function addPRComment(prNumber, body) {
     throw new Error(`Failed to comment on PR #${prNumber}: ${response.statusText} - ${errText}`);
   }
 
+  sentPRCommentCache.set(cacheKey, now);
   return response.json();
 }
+
 
 /**
  * Merges a pull request using the squash method.

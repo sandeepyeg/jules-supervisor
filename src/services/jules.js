@@ -159,10 +159,41 @@ export async function approvePlan(sessionId) {
   return response.json();
 }
 
+// In-memory anti-spam deduplication cache: `${sessionId}:${hash}` -> timestamp
+const sentMessageCache = new Map();
+const sessionLastSentTime = new Map();
+const MESSAGE_DUPLICATE_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutes for identical message
+const SESSION_RATE_LIMIT_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes minimum between any messages to same session
+
 /**
- * Sends a message/response back to the Jules agent.
+ * Sends a message/response back to the Jules agent with anti-spam rate limiting.
  */
-export async function sendMessage(sessionId, prompt) {
+export async function sendMessage(sessionId, prompt, options = {}) {
+  const { force = false } = options;
+  const now = Date.now();
+  
+  // Clean up cache entries older than 1 hour
+  for (const [key, ts] of sentMessageCache.entries()) {
+    if (now - ts > 60 * 60 * 1000) sentMessageCache.delete(key);
+  }
+
+  const promptSnippet = (prompt || '').trim();
+  const cacheKey = `${sessionId}:${promptSnippet.slice(0, 100)}`;
+  const lastSentSameMsg = sentMessageCache.get(cacheKey);
+
+  if (!force && lastSentSameMsg && (now - lastSentSameMsg) < MESSAGE_DUPLICATE_COOLDOWN_MS) {
+    const elapsedMins = Math.round((now - lastSentSameMsg) / 60000);
+    console.log(`[Jules AntiSpam] Suppressed duplicate message to session ${sessionId} (${elapsedMins}m ago): "${promptSnippet.slice(0, 60)}..."`);
+    return { suppressed: true, reason: 'duplicate_cooldown' };
+  }
+
+  const lastSentAnyMsg = sessionLastSentTime.get(sessionId);
+  if (!force && lastSentAnyMsg && (now - lastSentAnyMsg) < SESSION_RATE_LIMIT_COOLDOWN_MS) {
+    const remainingSecs = Math.round((SESSION_RATE_LIMIT_COOLDOWN_MS - (now - lastSentAnyMsg)) / 1000);
+    console.log(`[Jules AntiSpam] Throttled rapid message to session ${sessionId} (must wait ${remainingSecs}s): "${promptSnippet.slice(0, 60)}..."`);
+    return { suppressed: true, reason: 'rate_limit' };
+  }
+
   const url = `${getBaseUrl()}/sessions/${sessionId}:sendMessage`;
   
   const response = await fetch(url, {
@@ -176,5 +207,8 @@ export async function sendMessage(sessionId, prompt) {
     throw new Error(`Failed to send message to session ${sessionId}: ${response.statusText} - ${errText}`);
   }
 
+  sentMessageCache.set(cacheKey, now);
+  sessionLastSentTime.set(sessionId, now);
   return response.json();
 }
+

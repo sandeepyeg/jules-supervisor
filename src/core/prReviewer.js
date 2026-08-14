@@ -358,7 +358,7 @@ async function executeReviewAndMerge(task) {
       }
 
       if (!pr.mergeable && pr.mergeable_state === 'dirty') {
-        console.log(`PR #${task.pr_number} still has conflicts. Notifying Jules session to resolve conflicts while keeping PR open.`);
+        console.log(`PR #${task.pr_number} still has conflicts. Notifying Jules session once while keeping PR open.`);
         
         const conflictPrompt = `Merge conflict alert: Your PR #${task.pr_number} has merge conflicts with base branch ${phase.phase_branch}. Please fetch the latest ${phase.phase_branch}, merge/rebase it into your local working branch, resolve all conflict markers, and push the updated commit to PR #${task.pr_number}.`;
 
@@ -369,11 +369,12 @@ async function executeReviewAndMerge(task) {
           console.warn(`Failed to notify Jules for PR #${task.pr_number} conflict:`, msgErr.message);
         }
 
-        await updateTaskStatus(task.id, 'running', {
-          last_review_feedback: `Merge conflict with ${phase.phase_branch} — requested Jules rebase`
+        // Keep in pr_open status with feedback recorded so we don't bounce back and forth
+        await updateTaskStatus(task.id, 'pr_open', {
+          last_review_feedback: `Merge conflict with ${phase.phase_branch} — waiting for rebase`
         });
 
-        return { merged: false, conflict: true, reason: `PR #${task.pr_number} has merge conflicts; Jules notified to rebase` };
+        return { merged: false, conflict: true, reason: `PR #${task.pr_number} has merge conflicts; waiting for clean branch` };
       }
     }
 

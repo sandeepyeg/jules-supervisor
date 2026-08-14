@@ -205,10 +205,23 @@ The response must be strict JSON matching this exact format:
         reviewerSource = `Google (${reviewResult.model})`;
       }
     } catch (reviewError) {
-      console.error(`AI review failed for chunk ${idx + 1}:`, reviewError);
-      approved = false;
-      blockingIssues.push(`AI review chunk ${idx + 1} failed: ${reviewError.message}`);
-      continue;
+      console.error(`AI review infrastructure failure for chunk ${idx + 1}:`, reviewError.message || reviewError);
+      // Infrastructure errors (429 quota, 403 forbidden, timeouts, rate limits) are NOT code defects in the PR.
+      // Do NOT add to blockingIssues and do NOT comment on GitHub or message Jules.
+      // Mark as unreviewed infrastructure failure so the supervisor retries quietly when AI quota/network recovers.
+      return {
+        approved: false,
+        finalRiskLevel: 'unknown',
+        reviewerSource: 'None (AI Infrastructure Unavailable)',
+        summaries: [`AI review deferred due to provider failure: ${reviewError.message}`],
+        missingRequirements: [],
+        testEvidences: [],
+        blockingIssues: [],
+        advisoryNotes: [],
+        followUpInstructions: [],
+        infraFailure: true,
+        infraError: reviewError.message
+      };
     }
 
     if (chunkResult.approved === false || chunkResult.approved === 'false') {
@@ -443,6 +456,10 @@ async function executeReviewAndMerge(task) {
       aggregate = cachedAggregate;
     } else {
       aggregate = await runAiDiffReview(task, phase, filenames, rawDiff);
+      if (aggregate.infraFailure) {
+        console.warn(`[PRReviewer] AI review for PR #${task.pr_number} deferred due to provider infrastructure unavailability (${aggregate.infraError}). Will retry next cycle without commenting.`);
+        return { merged: false, approved: false, infraFailure: true, reason: aggregate.infraError };
+      }
       try {
         await updateTaskStatus(task.id, task.status, {
           last_reviewed_sha: headSha,

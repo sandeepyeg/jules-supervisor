@@ -41,6 +41,18 @@ export async function handleSession(task) {
         await telegram.sendNotification(`Task failed: "${task.title}" PR #${task.pr_number} was closed without being merged.\n${pr.html_url || task.pr_url || ''}`);
         return;
       }
+      if (pr?.state === 'open') {
+        if (task.status !== 'pr_open') {
+          console.log(`Self-Healing: PR #${task.pr_number} is open on GitHub for task #${task.id}. Transitioning to pr_open.`);
+          await queries.updateTaskStatus(task.id, 'pr_open', {
+            pr_url: pr.html_url || task.pr_url,
+            pr_number: task.pr_number
+          });
+        }
+        const updatedTask = await queries.getTask(task.id);
+        await prReviewer.reviewAndMerge(updatedTask);
+        return;
+      }
     } catch (reconcileErr) {
       console.warn(`PR self-healing (merge check) warning for task #${task.id}:`, reconcileErr.message);
     }

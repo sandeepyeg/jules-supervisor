@@ -10,7 +10,7 @@ import { checkStaleRunningTasks } from './staleWatcher.js';
 const activePollers = new Map();
 const activePollRuns = new Map(); // stores phaseId -> startTime
 const manuallyPausedPollers = new Set();
-const POLL_RUN_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes max per poll cycle
+const POLL_RUN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes max per poll cycle
 
 /**
  * Watchdog: runs every 2 minutes and auto-revives any dead pollers for active phases.
@@ -91,7 +91,7 @@ export async function runPollCycle(phaseId) {
 
       try {
         const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`Task #${task.id} session handling timed out (45s)`)), 45000)
+          setTimeout(() => reject(new Error(`Task #${task.id} session handling timed out (180s)`)), 180000)
         );
         await Promise.race([sessionHandler.handleSession(task), timeoutPromise]);
       } catch (error) {

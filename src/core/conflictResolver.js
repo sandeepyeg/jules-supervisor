@@ -60,10 +60,17 @@ INSTRUCTIONS:
 4. Remove any duplicate imports or syntax errors.
 5. Return ONLY the raw resolved file contents. No explanation, no markdown backticks, no conflict markers (<<<<<<< or >>>>>>>).`;
 
-      const resolvedCode = await ai.generateText(prompt, {
-        provider: 'google',
-        model: 'gemini-3.1-flash-lite'
-      });
+      let resolvedCode = null;
+      try {
+        resolvedCode = await ai.askModel('openrouter', 'qwen/qwen3.7-flash', prompt, { temperature: 0.1 });
+      } catch (openrouterErr) {
+        console.warn(`[SmartConflictResolver] OpenRouter failed for ${filePath}: ${openrouterErr.message}. Trying Google Gemini...`);
+        try {
+          resolvedCode = await ai.askModel('google', 'gemini-3.1-flash-lite', prompt, { temperature: 0.1 });
+        } catch (geminiErr) {
+          console.warn(`[SmartConflictResolver] Google Gemini failed for ${filePath}: ${geminiErr.message}`);
+        }
+      }
 
       if (resolvedCode && resolvedCode.length > 10 && !resolvedCode.includes('<<<<<<<')) {
         // Commit the resolved file directly to headBranch via GitHub API
@@ -80,8 +87,19 @@ INSTRUCTIONS:
     }
 
     if (resolvedCount > 0) {
-      // Re-trigger update-branch to finalize merge
-      const isCleanNow = await github.updatePRBranch(prNumber);
+      console.log(`[SmartConflictResolver] ${resolvedCount} conflicting file(s) AI resolved and committed. Waiting 4s for GitHub ref settlement...`);
+      await new Promise(r => setTimeout(r, 4000));
+
+      // Re-trigger update-branch with retry to finalize merge
+      let isCleanNow = false;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          isCleanNow = await github.updatePRBranch(prNumber);
+          if (isCleanNow) break;
+        } catch (_) {}
+        if (attempt < 3) await new Promise(r => setTimeout(r, 3000));
+      }
+
       if (isCleanNow) {
         console.log(`[SmartConflictResolver] PR #${prNumber} conflicts completely resolved and merged with base branch!`);
         return true;

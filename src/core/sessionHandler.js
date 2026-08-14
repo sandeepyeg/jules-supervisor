@@ -292,21 +292,6 @@ export async function handleSession(task) {
 
       // Trigger review and merge (cheap on repeat polls thanks to prReviewer's sha cache)
       await prReviewer.reviewAndMerge(updatedTask);
-      // Auto-update base branch for all open PRs in phase to prevent merge conflicts
-      try {
-        if (phase) {
-          const openPrs = await github.getPRsForBranch ? await github.getPRsForBranch(phase.phase_branch) : [];
-          for (const openPr of (openPrs || [])) {
-            if (openPr.number !== prNumber && openPr.state === 'open') {
-              console.log(`Auto-updating base branch for open PR #${openPr.number}...`);
-              await github.updatePRBranch(openPr.number);
-            }
-          }
-        }
-      } catch (autoSyncErr) {
-        console.warn('Auto branch sync warning:', autoSyncErr.message);
-      }
-
       break;
     }
     

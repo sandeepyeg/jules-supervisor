@@ -78,7 +78,8 @@ INSTRUCTIONS:
           resolvedCode = await ai.askModel('google', 'gemini-3.1-flash-lite', prompt, { temperature: 0.1 });
         } catch (geminiErr) {
           console.warn(`[SmartConflictResolver] Google Gemini failed for ${filePath}: ${geminiErr.message}`);
-          if (geminiErr.message.includes('429') || geminiErr.message.includes('Quota exceeded') || geminiErr.message.includes('RESOURCE_EXHAUSTED')) {
+          const combinedMsg = `${openrouterErr.message} ${geminiErr.message}`.toLowerCase();
+          if (combinedMsg.includes('429') || combinedMsg.includes('quota') || combinedMsg.includes('resource_exhausted') || combinedMsg.includes('too many requests')) {
             aiQuotaExceededUntil = Date.now() + 10 * 60 * 1000; // 10 min circuit breaker
             console.warn(`[SmartConflictResolver] Quota exceeded on AI providers. Entering 10-minute circuit breaker.`);
             return false;

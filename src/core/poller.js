@@ -12,12 +12,62 @@ const activePollRuns = new Map(); // stores phaseId -> startTime
 const manuallyPausedPollers = new Set();
 const POLL_RUN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes max per poll cycle
 
+let isGlobalEmergencyStopped = false;
+let emergencyStoppedAt = null;
+
+export function isEmergencyStopped() {
+  return isGlobalEmergencyStopped;
+}
+
+export function getEmergencyStopInfo() {
+  return {
+    isEmergencyStopped: isGlobalEmergencyStopped,
+    stoppedAt: emergencyStoppedAt
+  };
+}
+
+export async function globalEmergencyStop() {
+  console.warn('[EMERGENCY STOP] Master shutdown triggered! Halting all pollers, task execution, and reviews.');
+  isGlobalEmergencyStopped = true;
+  emergencyStoppedAt = new Date().toISOString();
+
+  // Clear all poller intervals immediately
+  for (const [phaseId, interval] of activePollers.entries()) {
+    clearInterval(interval);
+    console.log(`[EMERGENCY STOP] Stopped poller for phase #${phaseId}`);
+  }
+  activePollers.clear();
+  activePollRuns.clear();
+
+  try {
+    await telegram.sendNotification('🛑 *EMERGENCY STOP ACTIVATED*\nJules Supervisor has been completely shut down via Master Kill Switch. All pollers, task launches, and PR reviews are paused.');
+  } catch (_) {}
+
+  return { ok: true, isEmergencyStopped: true, stoppedAt: emergencyStoppedAt };
+}
+
+export async function globalResume() {
+  console.log('[EMERGENCY RESUME] Master restart triggered! Resuming supervisor pollers...');
+  isGlobalEmergencyStopped = false;
+  emergencyStoppedAt = null;
+
+  try {
+    await telegram.sendNotification('🟢 *SUPERVISOR RESUMED*\nMaster shutdown cleared. Jules Supervisor background orchestration is now active.');
+  } catch (_) {}
+
+  return await forceResumeAll();
+}
+
 /**
  * Watchdog: runs every 2 minutes and auto-revives any dead pollers for active phases.
  * Handles server restarts, crashes, or any reason the poller interval died.
  * Also checks for stale running tasks (>30m) and alerts via Telegram.
  */
 setInterval(async () => {
+  if (isGlobalEmergencyStopped) {
+    return; // Do not revive pollers during emergency stop
+  }
+
   try {
     const [activePhases] = await (await import('../db/connection.js')).pool.query("SELECT id FROM phases WHERE status = 'active'");
     for (const phase of activePhases) {
@@ -49,6 +99,8 @@ setInterval(async () => {
 
 export function getPollerHealth() {
   return {
+    isEmergencyStopped: isGlobalEmergencyStopped,
+    stoppedAt: emergencyStoppedAt,
     activePhaseIds: [...activePollers.keys()],
     inFlightPhaseIds: [...activePollRuns.keys()],
     manuallyPausedPhaseIds: [...manuallyPausedPollers.values()]
@@ -56,6 +108,11 @@ export function getPollerHealth() {
 }
 
 export async function runPollCycle(phaseId) {
+  if (isGlobalEmergencyStopped) {
+    console.log(`[EMERGENCY STOP] Poller for phase ${phaseId} aborted (System is globally stopped).`);
+    return { skipped: true, reason: 'emergency_stopped' };
+  }
+
   if (manuallyPausedPollers.has(phaseId)) {
     console.log(`Phase ${phaseId} poller is manually paused. Skipping poll cycle.`);
     return { skipped: true, reason: 'manually_paused' };
@@ -205,6 +262,11 @@ export async function runPollCycle(phaseId) {
  * Starts the periodic poller for a given phase ID.
  */
 export function startPoller(phaseId) {
+  if (isGlobalEmergencyStopped) {
+    console.warn(`[startPoller] Blocked starting poller for phase #${phaseId}: System is in EMERGENCY STOP.`);
+    return null;
+  }
+
   manuallyPausedPollers.delete(phaseId);
 
   // If there's already a poller for this phase, return it

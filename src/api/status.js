@@ -3,11 +3,55 @@ import { pool } from '../db/connection.js';
 import * as queries from '../db/queries.js';
 import { portalAuth } from './auth.js';
 import { getMetrics } from '../core/metrics.js';
-import { getPollerHealth } from '../core/poller.js';
+import { getPollerHealth, globalEmergencyStop, globalResume, isEmergencyStopped, getEmergencyStopInfo } from '../core/poller.js';
 import { getRateLimitStatus } from '../core/taskManager.js';
 import { MAX_AUTO_REVISION_ATTEMPTS } from '../core/config.js';
 
 const router = express.Router();
+
+/**
+ * POST /api/status/emergency-stop
+ * Master Kill Switch: Halts all supervisor pollers, background orchestration, and task operations immediately.
+ */
+router.post('/emergency-stop', portalAuth, async (req, res) => {
+  try {
+    const result = await globalEmergencyStop();
+    res.json({
+      success: true,
+      message: 'Emergency stop activated. All supervisor operations halted.',
+      ...result
+    });
+  } catch (error) {
+    console.error('Error activating emergency stop:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/status/resume
+ * Master Resume Switch: Resumes background orchestration and restores active phase pollers.
+ */
+router.post('/resume', portalAuth, async (req, res) => {
+  try {
+    const result = await globalResume();
+    res.json({
+      success: true,
+      message: 'Supervisor operations resumed.',
+      ...result
+    });
+  } catch (error) {
+    console.error('Error resuming supervisor:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/status/emergency-state
+ * Quick check on whether emergency stop is currently active.
+ */
+router.get('/emergency-state', portalAuth, (req, res) => {
+  res.json(getEmergencyStopInfo());
+});
 
 /**
  * GET /api/status/metrics
@@ -23,6 +67,8 @@ router.get('/metrics', portalAuth, async (req, res) => {
 
     res.json({
       ...getMetrics(),
+      isEmergencyStopped: isEmergencyStopped(),
+      emergencyStopInfo: getEmergencyStopInfo(),
       escalatedTasksCount: escalatedCount,
       maxAutoRevisionAttempts: MAX_AUTO_REVISION_ATTEMPTS,
       pollers: getPollerHealth(),

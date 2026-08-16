@@ -353,16 +353,8 @@ Note: The previous attempt failed. Please try a different approach.`;
       const elapsedMs = Date.now() - new Date(task.updated_at || task.created_at).getTime();
       const elapsedMins = Math.floor(elapsedMs / 60000);
       
-      // 1. Nudge Jules if in progress for > 20 mins
-      if (elapsedMins >= 20 && elapsedMins < 45 && !task.nudge_sent) {
-        console.log(`Task #${task.id} has been in progress for ${elapsedMins} mins. Sending finish nudge to Jules...`);
-        try {
-          await jules.sendMessage(task.jules_session_id, "Please complete your implementation, run your checks, commit your changes, and open the Pull Request against the target branch now.");
-          await queries.updateTaskStatus(task.id, task.status, { nudge_sent: true });
-        } catch (nudgeErr) {
-          console.warn(`Failed to send nudge for session ${task.jules_session_id}:`, nudgeErr.message);
-        }
-      }
+      // Note: Nudge removed to prevent spamming Jules sessions and triggering automated Gmail alerts.
+      // Jules sessions proceed autonomously until completion or timeout.
       
       // 2. Auto-retry fresh session if stalled for > 45 mins
       if (elapsedMins >= 45 && task.retry_count < 2) {

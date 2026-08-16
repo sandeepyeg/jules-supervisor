@@ -371,18 +371,9 @@ async function executeReviewAndMerge(task) {
       }
 
       if (!pr.mergeable && pr.mergeable_state === 'dirty') {
-        console.log(`PR #${task.pr_number} still has conflicts. Notifying Jules session once while keeping PR open.`);
-        
-        const conflictPrompt = `Merge conflict alert: Your PR #${task.pr_number} has merge conflicts with base branch ${phase.phase_branch}. Please fetch the latest ${phase.phase_branch}, merge/rebase it into your local working branch, resolve all conflict markers, and push the updated commit to PR #${task.pr_number}.`;
+        console.log(`PR #${task.pr_number} has unresolved merge conflicts with ${phase.phase_branch}. Keeping in pr_open without spamming Jules session.`);
 
-        try {
-          await jules.sendMessage(task.jules_session_id, conflictPrompt);
-          await github.addPRComment(task.pr_number, `⚠️ **Supervisor Notice**: Merge conflicts detected with \`${phase.phase_branch}\`. Jules has been instructed to rebase and resolve conflicts.`);
-        } catch (msgErr) {
-          console.warn(`Failed to notify Jules for PR #${task.pr_number} conflict:`, msgErr.message);
-        }
-
-        // Keep in pr_open status with feedback recorded so we don't bounce back and forth
+        // Keep in pr_open status with feedback recorded quietly
         await updateTaskStatus(task.id, 'pr_open', {
           last_review_feedback: `Merge conflict with ${phase.phase_branch} — waiting for rebase`
         });
@@ -774,24 +765,7 @@ export async function autoSyncOtherOpenPRs(phaseBranch, mergedPrNumber) {
       if (success) {
         console.log(`[AutoResolver] Successfully updated base branch for PR #${pr.number}.`);
       } else {
-        const pool = (await import('../db/connection.js')).pool;
-        const [taskRows] = await pool.query('SELECT * FROM tasks WHERE pr_number = ?', [pr.number]);
-        const task = taskRows[0];
-        if (task && task.jules_session_id && task.status === 'pr_open') {
-          console.warn(`[AutoResolver] Merge conflict detected on PR #${pr.number} for task #${task.id}. Notifying Jules session...`);
-          try {
-            await jules.sendMessage(
-              task.jules_session_id,
-              `The base branch ${phaseBranch} was updated with newly merged code, resulting in a merge conflict on PR #${pr.number}. Please fetch the latest ${phaseBranch}, merge or rebase it into your working branch, resolve conflicts, and push the updated branch to PR #${pr.number}.`
-            );
-            await github.addPRComment(
-              pr.number,
-              `⚠️ **Supervisor Merge Conflict Notice**: The base branch \`${phaseBranch}\` was updated, resulting in merge conflicts on this PR. Jules has been messaged to rebase/resolve conflicts.`
-            );
-          } catch (msgErr) {
-            console.warn(`[AutoResolver] Could not notify Jules for PR #${pr.number} conflict:`, msgErr.message);
-          }
-        }
+        console.log(`[AutoResolver] PR #${pr.number} requires manual/rebase update on ${phaseBranch}. Logged quietly without messaging Jules.`);
       }
     }
   } catch (err) {

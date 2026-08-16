@@ -32,7 +32,20 @@ export async function smartResolvePRMergeConflicts(prNumber, task, phaseBranch) 
     if (!files || files.length === 0) return false;
 
     // Filter files that are modified or have status 'modified' / 'renamed'
-    const modifiedFiles = files.filter(f => f.status === 'modified' || f.status === 'renamed' || f.changes > 0);
+    // STRICT TOKEN PROTECTION: Skip lockfiles, large build artifacts, assets, and files > 20KB
+    const nonCodeExtensions = ['.lock', '-lock.json', '.json', '.svg', '.png', '.jpg', '.jpeg', '.ico', '.csv', '.map'];
+    const modifiedFiles = files.filter(f => {
+      const name = (f.filename || '').toLowerCase();
+      if (nonCodeExtensions.some(ext => name.endsWith(ext))) return false;
+      if (f.changes > 400) return false; // Skip massive diffs to save AI tokens
+      return f.status === 'modified' || f.status === 'renamed' || f.changes > 0;
+    }).slice(0, 3); // Max 3 files per PR
+
+    if (modifiedFiles.length === 0) {
+      console.log(`[SmartConflictResolver] No eligible code files for AI merge resolution in PR #${prNumber} (skipped lockfiles/large diffs).`);
+      return false;
+    }
+
     let resolvedCount = 0;
 
     for (const file of modifiedFiles) {
@@ -44,6 +57,10 @@ export async function smartResolvePRMergeConflicts(prNumber, task, phaseBranch) 
 
       if (!baseContent || !headContent) continue;
       if (baseContent === headContent) continue; // Same content, no conflict
+      if (baseContent.length > 25000 || headContent.length > 25000) {
+        console.log(`[SmartConflictResolver] Skipping ${filePath} (file size > 25KB) to save AI tokens.`);
+        continue;
+      }
 
       console.log(`[SmartConflictResolver] AI Synthesizing clean merge for ${filePath} in PR #${prNumber}...`);
 

@@ -574,7 +574,9 @@ async function executeReviewAndMerge(task) {
         console.log(`Auto-merging PR #${task.pr_number} into phase branch "${phase.phase_branch}"...`);
 
         // Approve and merge via GitHub API
-        await github.approvePR(task.pr_number);
+        // approvePR can fail with 422 if the token owner is also the PR author (self-approval not allowed).
+        // This is non-fatal — we still proceed to merge since the AI review already approved the code.
+        try { await github.approvePR(task.pr_number); } catch (appErr) { console.warn(`Approve PR #${task.pr_number} warning (non-fatal):`, appErr.message); }
         await github.mergePR(task.pr_number, task.title, phase.phase_branch);
 
         try {

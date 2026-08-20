@@ -537,14 +537,18 @@ async function executeReviewAndMerge(task) {
     const summaryText = summaries.join(' ');
     const blockingText = blockingIssues.concat(missingRequirements).join(', ');
 
-    // Log the review action in qa_log
-    await logQA(
-      task.id,
-      `[PR Review Command] PR #${task.pr_number}`,
-      `Approved: ${approved}. Reviewer: ${reviewerSource || 'unknown'}. Risk Level: ${finalRiskLevel}. Summary: ${summaryText}. Blockers: ${blockingText}. Advisory: ${advisoryNotes.join('; ') || 'none'}`,
-      'system',
-      null
-    );
+    // Log the review action in qa_log only when the commit SHA or verdict is fresh (to avoid flooding qa_log every 30s)
+    const reviewLogMarker = `[PR Review Command] PR #${task.pr_number} ${headSha}`;
+    const alreadyLoggedQA = await hasQALogEntry(task.id, reviewLogMarker);
+    if (!alreadyLoggedQA) {
+      await logQA(
+        task.id,
+        reviewLogMarker,
+        `Approved: ${approved}. Reviewer: ${reviewerSource || 'unknown'}. Risk Level: ${finalRiskLevel}. Summary: ${summaryText}. Blockers: ${blockingText}. Advisory: ${advisoryNotes.join('; ') || 'none'}`,
+        'system',
+        null
+      );
+    }
 
     // Advisory notes are informational only — surfaced to the human, never sent to
     // Jules, never posted to GitHub, never affect the merge decision.
@@ -558,44 +562,42 @@ async function executeReviewAndMerge(task) {
 
     if (approved) {
       // Determine if we can auto-merge:
-      // If targeting a phase branch (not main) and TASK_AUTO_MERGE_TO_PHASE_BRANCH is true
       const isTargetingPhaseBranch = baseBranch === phase.phase_branch && baseBranch !== 'main';
-      const canAutoMerge = (
-        TASK_AUTO_MERGE_TO_PHASE_BRANCH &&
-        isTargetingPhaseBranch &&
-        checksStatus !== 'failing' &&
-        (!BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH || finalRiskLevel !== 'high')
-      );
+      const isLowRiskOrAllowed = finalRiskLevel === 'low' || !BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH;
+      const isChecksPassing = checksStatus === 'passing' || checksStatus === 'neutral';
+
+      const canAutoMerge = TASK_AUTO_MERGE_TO_PHASE_BRANCH && isTargetingPhaseBranch && isLowRiskOrAllowed && isChecksPassing;
 
       if (canAutoMerge) {
-        console.log(`Approving PR #${task.pr_number}...`);
-        try { await github.approvePR(task.pr_number); } catch (appErr) { console.warn('Approve PR warning:', appErr.message); }
+        console.log(`Auto-merging PR #${task.pr_number} into phase branch "${phase.phase_branch}"...`);
 
-        console.log(`Merging PR #${task.pr_number} into ${phase.phase_branch}...`);
+        // Approve and merge via GitHub API
+        await github.approvePR(task.pr_number);
         await github.mergePR(task.pr_number, task.title, phase.phase_branch);
 
-        // Clean up any other open duplicate/abandoned PRs for this task
         try {
           await github.closeDuplicateTaskPRs(phase.phase_branch, task.pr_number, task.id, task.title, task.jules_session_id);
-        } catch (cleanupErr) {
-          console.warn(`Duplicate PR cleanup warning for task #${task.id}:`, cleanupErr.message);
-        }
+        } catch (_) {}
 
-        // Auto-sync other open PRs on the phase branch to prevent merge conflicts
+        // 8. Auto-sync other open PRs against the newly merged phase branch
         try {
-          await autoSyncOtherOpenPRs(phase.phase_branch, task.pr_number);
+          await autoSyncOtherOpenPRs(task.pr_number, phase.phase_branch);
         } catch (syncErr) {
-          console.warn(`Auto-sync notice for phase branch ${phase.phase_branch}:`, syncErr.message);
+          console.warn(`Auto-sync other PRs warning after merging PR #${task.pr_number}:`, syncErr.message);
         }
 
-        // Update task to merged status
-        await updateTaskStatus(task.id, 'merged', { escalated: false });
+        // Update task status to merged
+        await updateTaskStatus(task.id, 'merged', {
+          escalated: false,
+          last_reviewed_sha: headSha,
+          last_review_verdict: JSON.stringify(aggregate)
+        });
 
         // Send Telegram notification
         try {
           const readyTasks = await getQueuedReadyTasks(task.phase_id);
-          const nextTitle = readyTasks[0]?.title;
-          await telegram.sendTaskMergedNotification(task.title, task.id, pr.html_url || task.pr_url, phase.phase_branch, nextTitle);
+          const nextTaskTitle = readyTasks.length > 0 ? readyTasks[0].title : null;
+          await telegram.sendTaskMergedNotification(task.title, task.id, pr.html_url || task.pr_url, phase.phase_branch, nextTaskTitle);
         } catch (tgErr) {
           console.error('Failed to send Telegram task merged notification:', tgErr);
         }
@@ -620,7 +622,11 @@ async function executeReviewAndMerge(task) {
         });
 
         // Keep task status as pr_open
-        await updateTaskStatus(task.id, 'pr_open', { escalated: false });
+        await updateTaskStatus(task.id, 'pr_open', {
+          escalated: false,
+          last_reviewed_sha: headSha,
+          last_review_verdict: JSON.stringify(aggregate)
+        });
         return { merged: false, reason: 'Auto-merge policies prevented merge' };
       }
     } else {
@@ -664,13 +670,16 @@ Summary: ${summaryText}${followUpInstructions.length ? `\n\nSuggested fix:\n${fo
             reviewerSource: reviewerSource,
             isHardStop: false
           });
+        });
 
-          const feedbackItems = blockingIssues.concat(missingRequirements);
-          const feedbackSummary = feedbackItems.join('; ') || 'Requested revisions for task criteria';
-          await updateTaskStatus(task.id, 'running', {
-            pr_revision_count: nextRevisionCount,
-            last_review_feedback: feedbackSummary
-          });
+        // Always record the revision state on the task record so it transitions properly
+        const feedbackItems = blockingIssues.concat(missingRequirements);
+        const feedbackSummary = feedbackItems.join('; ') || 'Requested revisions for task criteria';
+        await updateTaskStatus(task.id, 'running', {
+          pr_revision_count: nextRevisionCount,
+          last_review_feedback: feedbackSummary,
+          last_reviewed_sha: headSha,
+          last_review_verdict: JSON.stringify(aggregate)
         });
 
         return { merged: false, reason: blockingText };

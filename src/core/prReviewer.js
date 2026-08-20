@@ -307,10 +307,10 @@ async function executeReviewAndMerge(task) {
 
     // 2. Validate target/base branch
     const baseBranch = pr.base?.ref;
-    if (baseBranch === 'main' || baseBranch !== phase.phase_branch || (NEVER_MERGE_TO_MAIN && baseBranch === 'main')) {
+    if (baseBranch === 'main' || baseBranch === 'develop' || baseBranch !== phase.phase_branch) {
       console.log(`PR #${task.pr_number} targets wrong base branch: "${baseBranch}" (expected "${phase.phase_branch}"). Blocking.`);
 
-      const correction = `Your PR targets ${baseBranch}. Retarget the PR to ${phase.phase_branch}. The supervisor is not allowed to merge into main.`;
+      const correction = `Your PR targets "${baseBranch}" which is a protected branch. Retarget the PR to ${phase.phase_branch}. The supervisor is never allowed to merge into main or develop.`;
 
       // Update QA log
       await logQA(
@@ -562,7 +562,8 @@ async function executeReviewAndMerge(task) {
 
     if (approved) {
       // Determine if we can auto-merge:
-      const isTargetingPhaseBranch = baseBranch === phase.phase_branch && baseBranch !== 'main';
+      // Hard rule: only merge into the phase branch — never into main or develop
+      const isTargetingPhaseBranch = baseBranch === phase.phase_branch && baseBranch !== 'main' && baseBranch !== 'develop';
       const isLowRiskOrAllowed = finalRiskLevel === 'low' || !BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH;
       // 'unknown' = no CI configured on this repo, treat as passing (not failing)
       const isChecksPassing = checksStatus !== 'failing';

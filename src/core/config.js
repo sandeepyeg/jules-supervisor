@@ -6,7 +6,7 @@ export let BACKUP_SUPERVISOR_PROVIDER = process.env.BACKUP_SUPERVISOR_PROVIDER |
 export let BACKUP_SUPERVISOR_MODEL = process.env.BACKUP_SUPERVISOR_MODEL || 'qwen/qwen3.7-flash';
 export let STRONG_REVIEW_PROVIDER = process.env.STRONG_REVIEW_PROVIDER || 'google';
 export let STRONG_REVIEW_MODEL = process.env.STRONG_REVIEW_MODEL || 'gemini-3.5-flash';
-export let GOOGLE_FALLBACK_MODELS = process.env.GOOGLE_FALLBACK_MODELS || 'gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.5-flash,gemini-3.1-flash';
+export let GOOGLE_FALLBACK_MODELS = process.env.GOOGLE_FALLBACK_MODELS || 'gemini-2.5-flash-lite,gemini-2.5-flash';
 
 export let AI_CONFIDENCE_THRESHOLD = parseFloat(process.env.AI_CONFIDENCE_THRESHOLD || '8');
 export let TASK_AUTO_MERGE_TO_PHASE_BRANCH = process.env.TASK_AUTO_MERGE_TO_PHASE_BRANCH === 'true'; // default false
@@ -54,7 +54,7 @@ export function reloadConfig() {
   BACKUP_SUPERVISOR_MODEL = process.env.BACKUP_SUPERVISOR_MODEL || 'qwen/qwen3.7-flash';
   STRONG_REVIEW_PROVIDER = process.env.STRONG_REVIEW_PROVIDER || 'google';
   STRONG_REVIEW_MODEL = process.env.STRONG_REVIEW_MODEL || 'gemini-3.5-flash';
-  GOOGLE_FALLBACK_MODELS = process.env.GOOGLE_FALLBACK_MODELS || 'gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.5-flash,gemini-3.1-flash';
+  GOOGLE_FALLBACK_MODELS = process.env.GOOGLE_FALLBACK_MODELS || 'gemini-2.5-flash-lite,gemini-2.5-flash';
 
   AI_CONFIDENCE_THRESHOLD = parseFloat(process.env.AI_CONFIDENCE_THRESHOLD || '8');
   TASK_AUTO_MERGE_TO_PHASE_BRANCH = process.env.TASK_AUTO_MERGE_TO_PHASE_BRANCH === 'true';

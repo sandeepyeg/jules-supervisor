@@ -3,10 +3,44 @@ import {
   PRIMARY_SUPERVISOR_MODEL,
   BACKUP_SUPERVISOR_PROVIDER,
   BACKUP_SUPERVISOR_MODEL,
-  GOOGLE_FALLBACK_MODELS
+  GOOGLE_FALLBACK_MODELS,
+  GEMINI_DAILY_FREE_CALL_BUDGET
 } from '../core/config.js';
 import { fetchWithRetry as fetch } from './httpRetry.js';
 import { recordAiCall } from '../core/metrics.js';
+
+// ---------------------------------------------------------------------------
+// Rolling 24-hour AI call budget tracker (in-memory, resets on restart)
+// Prevents runaway loops from burning through the free Gemini quota.
+// ---------------------------------------------------------------------------
+const HARD_DAILY_CAP = 1500; // absolute ceiling across all providers
+const callTimestamps = []; // timestamps of every AI call in the last 24h
+
+function recordBudgetCall() {
+  const now = Date.now();
+  callTimestamps.push(now);
+  // Prune entries older than 24h so the array stays small
+  const cutoff = now - 24 * 60 * 60 * 1000;
+  while (callTimestamps.length > 0 && callTimestamps[0] < cutoff) {
+    callTimestamps.shift();
+  }
+}
+
+function getDailyCallCount() {
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  return callTimestamps.filter(t => t >= cutoff).length;
+}
+
+export function getDailyAiBudgetStatus() {
+  const used = getDailyCallCount();
+  return {
+    used,
+    geminiFreeBudget: GEMINI_DAILY_FREE_CALL_BUDGET,
+    hardCap: HARD_DAILY_CAP,
+    googleBudgetExhausted: used >= GEMINI_DAILY_FREE_CALL_BUDGET,
+    hardCapHit: used >= HARD_DAILY_CAP
+  };
+}
 
 /**
  * A generic function to call an AI provider/model.
@@ -14,7 +48,14 @@ import { recordAiCall } from '../core/metrics.js';
  * Never logs API keys or secrets.
  */
 export async function askModel(provider, model, prompt, options = {}) {
+  // Hard-cap: refuse to make any call if the absolute daily ceiling is reached.
+  const daily = getDailyCallCount();
+  if (daily >= HARD_DAILY_CAP) {
+    throw new Error(`[BudgetGuard] Daily AI call hard cap (${HARD_DAILY_CAP}) reached. Refusing call to ${provider}/${model}.`);
+  }
+
   try {
+    recordBudgetCall();
     const result = await askModelUncounted(provider, model, prompt, options);
     recordAiCall(true);
     return result;
@@ -146,27 +187,36 @@ export async function askJsonGoogleFirst(primaryProvider, primaryModel, prompt, 
   const googleErrors = [];
   const configuredModels = getGoogleModelFallbackOrder(primaryProvider, primaryModel);
 
-  for (let i = 0; i < configuredModels.length; i++) {
-    const model = configuredModels[i];
-    try {
-      const text = await askModel('google', model, prompt, options);
-      const parsed = parseAiJson(text);
-      if (parsed && isUsable(parsed)) {
-        return {
-          text,
-          parsed,
-          provider: 'google',
-          model,
-          paidFallbackUsed: false,
-          googleFallbackUsed: i > 0,
-          googleErrors,
-          primaryModelAttempted: configuredModels[0]
-        };
+  // If the Gemini free-tier daily budget is exhausted, skip Google models entirely
+  // and go straight to the paid fallback to avoid burning quota.
+  const budgetExhausted = getDailyCallCount() >= GEMINI_DAILY_FREE_CALL_BUDGET;
+  if (budgetExhausted) {
+    console.warn(`[BudgetGuard] Gemini free-tier daily budget (${GEMINI_DAILY_FREE_CALL_BUDGET}) exhausted. Routing directly to paid fallback (${BACKUP_SUPERVISOR_PROVIDER}/${BACKUP_SUPERVISOR_MODEL}).`);
+  }
+
+  if (!budgetExhausted) {
+    for (let i = 0; i < configuredModels.length; i++) {
+      const model = configuredModels[i];
+      try {
+        const text = await askModel('google', model, prompt, options);
+        const parsed = parseAiJson(text);
+        if (parsed && isUsable(parsed)) {
+          return {
+            text,
+            parsed,
+            provider: 'google',
+            model,
+            paidFallbackUsed: false,
+            googleFallbackUsed: i > 0,
+            googleErrors,
+            primaryModelAttempted: configuredModels[0]
+          };
+        }
+        googleErrors.push(`google/${model}: returned invalid JSON shape`);
+      } catch (error) {
+        googleErrors.push(`google/${model}: ${error.message}`);
+        console.warn(`Google AI call failed (${model}); trying next Google model if available:`, error.message);
       }
-      googleErrors.push(`google/${model}: returned invalid JSON shape`);
-    } catch (error) {
-      googleErrors.push(`google/${model}: ${error.message}`);
-      console.warn(`Google AI call failed (${model}); trying next Google model if available:`, error.message);
     }
   }
 

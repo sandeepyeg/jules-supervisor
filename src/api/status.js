@@ -3,6 +3,7 @@ import { pool } from '../db/connection.js';
 import * as queries from '../db/queries.js';
 import { portalAuth } from './auth.js';
 import { getMetrics } from '../core/metrics.js';
+import { getDailyAiBudgetStatus } from '../services/ai.js';
 import { getPollerHealth, globalEmergencyStop, globalResume, isEmergencyStopped, getEmergencyStopInfo } from '../core/poller.js';
 import { getRateLimitStatus } from '../core/taskManager.js';
 import { MAX_AUTO_REVISION_ATTEMPTS } from '../core/config.js';
@@ -67,6 +68,7 @@ router.get('/metrics', portalAuth, async (req, res) => {
 
     res.json({
       ...getMetrics(),
+      aiBudget: getDailyAiBudgetStatus(),
       isEmergencyStopped: isEmergencyStopped(),
       emergencyStopInfo: getEmergencyStopInfo(),
       escalatedTasksCount: escalatedCount,

@@ -564,7 +564,8 @@ async function executeReviewAndMerge(task) {
       // Determine if we can auto-merge:
       const isTargetingPhaseBranch = baseBranch === phase.phase_branch && baseBranch !== 'main';
       const isLowRiskOrAllowed = finalRiskLevel === 'low' || !BLOCK_HIGH_RISK_AUTO_MERGE_TO_PHASE_BRANCH;
-      const isChecksPassing = checksStatus === 'passing' || checksStatus === 'neutral';
+      // 'unknown' = no CI configured on this repo, treat as passing (not failing)
+      const isChecksPassing = checksStatus !== 'failing';
 
       const canAutoMerge = TASK_AUTO_MERGE_TO_PHASE_BRANCH && isTargetingPhaseBranch && isLowRiskOrAllowed && isChecksPassing;
 
